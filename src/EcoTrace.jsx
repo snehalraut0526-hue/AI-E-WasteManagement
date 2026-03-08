@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 
+const BASE_URL = "http://127.0.0.1:8000/api/users";
+
 const NAV_ITEMS = [
   { id: "home", label: "Home", icon: "🌍" },
   { id: "dashboard", label: "Dashboard", icon: "📊" },
@@ -94,6 +96,11 @@ const DonutChart = ({ percentage, color, size = 80 }) => {
 
 export default function EcoTrace() {
   const [activePage, setActivePage] = useState("home");
+  const [isAuthenticated, setIsAuthenticated] = useState(!!localStorage.getItem("access"));
+  const [userProfile, setUserProfile] = useState(() => {
+    const saved = localStorage.getItem("user");
+    return saved ? JSON.parse(saved) : null;
+  });
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [chatOpen, setChatOpen] = useState(false);
   const [chatMessages, setChatMessages] = useState([
@@ -121,6 +128,29 @@ export default function EcoTrace() {
     setTimeout(() => setNotification(null), 3000);
   };
 
+  const handleLogout = async () => {
+    try {
+      const refresh = localStorage.getItem("refresh");
+      if (refresh) {
+        await fetch(`${BASE_URL}/logout/`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${localStorage.getItem("access")}`
+          },
+          body: JSON.stringify({ refresh })
+        });
+      }
+    } catch (e) { }
+    localStorage.removeItem("access");
+    localStorage.removeItem("refresh");
+    localStorage.removeItem("user");
+    setIsAuthenticated(false);
+    setUserProfile(null);
+    setActivePage("home");
+    showNotif("Logged out successfully");
+  };
+
   const sendChat = () => {
     if (!chatInput.trim()) return;
     const userMsg = chatInput.toLowerCase();
@@ -132,19 +162,30 @@ export default function EcoTrace() {
     }, 700);
   };
 
-  const runAiDetection = () => {
+  const runAiDetection = async () => {
     if (!aiFile) return;
     setAiLoading(true);
     setAiResult(null);
-    setTimeout(() => {
-      const devices = [
-        { type: "Smartphone", category: "Mobile Device", confidence: 94, recyclability: 87, instructions: ["Remove SIM & memory cards", "Wipe all personal data", "Remove battery if possible", "Drop at certified center"], materials: ["Gold", "Silver", "Lithium", "Copper"], points: 80 },
-        { type: "Laptop", category: "Computing Device", confidence: 91, recyclability: 78, instructions: ["Back up and wipe data", "Remove battery", "Separate power adapter", "Use specialized e-waste facility"], materials: ["Aluminum", "Lithium", "Gold", "Rare Earth Metals"], points: 150 },
-        { type: "Battery Pack", category: "Power Storage", confidence: 88, recyclability: 92, instructions: ["Never puncture or dismantle", "Store in cool, dry place", "Use battery drop-off bins", "Urgent: high toxicity"], materials: ["Lithium", "Cobalt", "Manganese"], points: 60 },
-      ];
-      setAiResult(devices[Math.floor(Math.random() * devices.length)]);
-      setAiLoading(false);
-    }, 2500);
+
+    const formData = new FormData();
+    formData.append("image", aiFile);
+
+    try {
+      const res = await fetch(`${BASE_URL}/detect/`, {
+        method: "POST",
+        body: formData
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setAiResult(data);
+      } else {
+        showNotif(data.error || "Failed to analyze image", "error");
+      }
+    } catch (err) {
+      showNotif("Network error", "error");
+    }
+
+    setAiLoading(false);
   };
 
   const redeemReward = (reward) => {
@@ -225,8 +266,8 @@ export default function EcoTrace() {
           <span style={{ fontWeight: 800, fontSize: "22px", background: "linear-gradient(135deg, #22c55e, #4ade80)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>EcoTrace</span>
         </div>
         <div style={{ display: "flex", gap: "12px" }}>
-          <button onClick={() => setActivePage("dashboard")} style={{ ...s.btn("outline"), color: "#22c55e", borderColor: "#22c55e" }}>Login</button>
-          <button onClick={() => setActivePage("dashboard")} style={s.btn("primary")}>Register Free</button>
+          <button onClick={() => setActivePage("login")} style={{ ...s.btn("outline"), color: "#22c55e", borderColor: "#22c55e" }}>Login</button>
+          <button onClick={() => setActivePage("register")} style={s.btn("primary")}>Register Free</button>
         </div>
       </nav>
 
@@ -243,15 +284,26 @@ export default function EcoTrace() {
           Use AI to identify e-waste, find certified recycling centers nearby, earn rewards, and track your environmental impact — all in one platform.
         </p>
         <div style={{ display: "flex", gap: "16px", justifyContent: "center", flexWrap: "wrap" }}>
-          <button onClick={() => setActivePage("dashboard")} style={{ ...s.btn("primary"), padding: "16px 36px", fontSize: "16px", borderRadius: "14px" }}>🚀 Get Started Free</button>
+          <button onClick={() => setActivePage("register")} style={{ ...s.btn("primary"), padding: "16px 36px", fontSize: "16px", borderRadius: "14px" }}>🚀 Get Started Free</button>
           <button onClick={() => setActivePage("education")} style={{ ...s.btn("outline"), padding: "16px 36px", fontSize: "16px", borderRadius: "14px", color: "#fff", borderColor: "rgba(255,255,255,0.3)" }}>📚 Learn More</button>
         </div>
       </div>
 
       {/* Floating Icons */}
       <div style={{ display: "flex", justifyContent: "center", gap: "40px", padding: "0 48px 60px", flexWrap: "wrap" }}>
-        {[["🤖", "AI Detection"], ["📍", "Find Centers"], ["🚚", "Free Pickup"], ["🏆", "Earn Rewards"]].map(([icon, label]) => (
-          <div key={label} style={{ textAlign: "center", padding: "24px 28px", background: "rgba(255,255,255,0.05)", borderRadius: "20px", border: "1px solid rgba(255,255,255,0.1)", backdropFilter: "blur(8px)", minWidth: "120px" }}>
+        {[
+          { icon: "🤖", label: "AI Detection", page: "ai-detect" },
+          { icon: "📍", label: "Find Centers", page: "map" },
+          { icon: "🚚", label: "Free Pickup", page: "pickup" },
+          { icon: "🏆", label: "Earn Rewards", page: "rewards" }
+        ].map(({ icon, label, page }) => (
+          <div
+            key={label}
+            onClick={() => setActivePage(page)}
+            style={{ cursor: "pointer", textAlign: "center", padding: "24px 28px", background: "rgba(255,255,255,0.05)", borderRadius: "20px", border: "1px solid rgba(255,255,255,0.1)", backdropFilter: "blur(8px)", minWidth: "120px", transition: "transform 0.2s" }}
+            onMouseOver={e => e.currentTarget.style.transform = "translateY(-5px)"}
+            onMouseOut={e => e.currentTarget.style.transform = "translateY(0)"}
+          >
             <div style={{ fontSize: "36px", marginBottom: "8px" }}>{icon}</div>
             <div style={{ fontSize: "13px", color: "rgba(255,255,255,0.7)", fontWeight: 600 }}>{label}</div>
           </div>
@@ -294,7 +346,7 @@ export default function EcoTrace() {
       <div style={{ textAlign: "center", padding: "60px 48px", background: "linear-gradient(135deg, rgba(34,197,94,0.1), rgba(14,165,233,0.1))", borderTop: "1px solid rgba(255,255,255,0.06)" }}>
         <h2 style={{ fontSize: "36px", fontWeight: 800, marginBottom: "16px" }}>Ready to Make a Difference?</h2>
         <p style={{ color: "rgba(255,255,255,0.6)", marginBottom: "28px" }}>Join 50,000+ eco-warriors already using EcoTrace</p>
-        <button onClick={() => setActivePage("dashboard")} style={{ ...s.btn("primary"), padding: "18px 48px", fontSize: "18px", borderRadius: "14px" }}>Start Recycling Today →</button>
+        <button onClick={() => setActivePage("register")} style={{ ...s.btn("primary"), padding: "18px 48px", fontSize: "18px", borderRadius: "14px" }}>Start Recycling Today →</button>
       </div>
     </div>
   );
@@ -470,30 +522,19 @@ export default function EcoTrace() {
                     <div style={{ fontSize: "11px", color: "rgba(255,255,255,0.5)" }}>AI Confidence</div>
                   </div>
                   <div style={{ flex: 1, background: "rgba(255,255,255,0.08)", borderRadius: "10px", padding: "12px" }}>
-                    <div style={{ fontSize: "22px", fontWeight: 800, color: "#38bdf8" }}>{aiResult.recyclability}%</div>
-                    <div style={{ fontSize: "11px", color: "rgba(255,255,255,0.5)" }}>Recyclability</div>
-                  </div>
-                  <div style={{ flex: 1, background: "rgba(255,255,255,0.08)", borderRadius: "10px", padding: "12px" }}>
                     <div style={{ fontSize: "22px", fontWeight: 800, color: "#fbbf24" }}>+{aiResult.points}</div>
-                    <div style={{ fontSize: "11px", color: "rgba(255,255,255,0.5)" }}>EcoPoints</div>
+                    <div style={{ fontSize: "11px", color: "rgba(255,255,255,0.5)" }}>EcoPoints Value</div>
                   </div>
                 </div>
               </div>
 
               <div style={{ marginBottom: "16px" }}>
-                <div style={{ fontWeight: 700, marginBottom: "10px" }}>♻️ Recycling Instructions</div>
+                <div style={{ fontWeight: 700, marginBottom: "10px" }}>♻️ Quick Recycling Steps</div>
                 {aiResult.instructions.map((ins, i) => (
                   <div key={i} style={{ display: "flex", gap: "8px", padding: "8px 0", borderBottom: `1px solid ${colors.border}`, fontSize: "14px" }}>
                     <span style={{ color: colors.primary, fontWeight: 700 }}>{i + 1}.</span> {ins}
                   </div>
                 ))}
-              </div>
-
-              <div>
-                <div style={{ fontWeight: 700, marginBottom: "10px" }}>💎 Recoverable Materials</div>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
-                  {aiResult.materials.map(m => <span key={m} style={s.badge("#0ea5e9")}>{m}</span>)}
-                </div>
               </div>
 
               <div style={{ display: "flex", gap: "12px", marginTop: "20px" }}>
@@ -960,8 +1001,143 @@ export default function EcoTrace() {
     </div>
   );
 
+  const AuthContainer = ({ title, children }) => (
+    <div style={{ display: "flex", justifyContent: "center", alignItems: "center", minHeight: "100vh", padding: "20px" }}>
+      <div style={{ ...s.card, width: "100%", maxWidth: "400px" }}>
+        <h2 style={{ fontSize: "24px", fontWeight: 800, textAlign: "center", marginBottom: "24px", color: colors.dark }}>{title}</h2>
+        {children}
+      </div>
+    </div>
+  );
+
+  const LoginPage = () => {
+    const [email, setEmail] = useState("");
+    const [password, setPassword] = useState("");
+    const [loading, setLoading] = useState(false);
+
+    const handleSubmit = async (e) => {
+      e.preventDefault();
+      setLoading(true);
+      try {
+        const res = await fetch(`${BASE_URL}/login/`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email, password })
+        });
+        const data = await res.json();
+        if (res.ok) {
+          localStorage.setItem("access", data.tokens.access);
+          localStorage.setItem("refresh", data.tokens.refresh);
+          localStorage.setItem("user", JSON.stringify(data.user));
+          setIsAuthenticated(true);
+          setUserProfile(data.user);
+          showNotif("Login successful!");
+          setActivePage("dashboard");
+        } else {
+          showNotif(data.error || "Login failed", "error");
+        }
+      } catch (err) {
+        showNotif("Network error", "error");
+      }
+      setLoading(false);
+    };
+
+    return (
+      <AuthContainer title="Welcome Back">
+        <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+          <div>
+            <label style={{ fontSize: "14px", fontWeight: 600, marginBottom: "8px", display: "block" }}>Email</label>
+            <input type="email" style={s.input} value={email} onChange={e => setEmail(e.target.value)} required />
+          </div>
+          <div>
+            <label style={{ fontSize: "14px", fontWeight: 600, marginBottom: "8px", display: "block" }}>Password</label>
+            <input type="password" style={s.input} value={password} onChange={e => setPassword(e.target.value)} required />
+          </div>
+          <button type="submit" style={{ ...s.btn("primary"), marginTop: "8px", width: "100%" }} disabled={loading}>
+            {loading ? "Logging in..." : "Login"}
+          </button>
+        </form>
+        <div style={{ textAlign: "center", marginTop: "16px", fontSize: "14px", color: colors.muted }}>
+          Don't have an account? <span style={{ color: colors.primary, cursor: "pointer", fontWeight: 600 }} onClick={() => setActivePage("register")}>Register</span>
+        </div>
+      </AuthContainer>
+    );
+  };
+
+  const RegisterPage = () => {
+    const [form, setForm] = useState({ username: "", email: "", password: "", confirm_password: "" });
+    const [loading, setLoading] = useState(false);
+
+    const handleSubmit = async (e) => {
+      e.preventDefault();
+      if (form.password !== form.confirm_password) {
+        return showNotif("Passwords do not match", "error");
+      }
+      setLoading(true);
+      try {
+        const res = await fetch(`${BASE_URL}/register/`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(form)
+        });
+        const data = await res.json();
+        if (res.ok) {
+          localStorage.setItem("access", data.tokens.access);
+          localStorage.setItem("refresh", data.tokens.refresh);
+          localStorage.setItem("user", JSON.stringify(data.user));
+          setIsAuthenticated(true);
+          setUserProfile(data.user);
+          showNotif("Registration successful!");
+          setActivePage("dashboard");
+        } else {
+          let errorMsg = "Registration failed.";
+          if (data.errors) {
+            const firstKey = Object.keys(data.errors)[0];
+            errorMsg = Array.isArray(data.errors[firstKey]) ? data.errors[firstKey][0] : JSON.stringify(data.errors);
+          }
+          showNotif(errorMsg, "error");
+        }
+      } catch (err) {
+        showNotif("Network error", "error");
+      }
+      setLoading(false);
+    };
+
+    return (
+      <AuthContainer title="Create an Account">
+        <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+          <div>
+            <label style={{ fontSize: "14px", fontWeight: 600, marginBottom: "4px", display: "block" }}>Username</label>
+            <input type="text" style={s.input} value={form.username} onChange={e => setForm({ ...form, username: e.target.value })} required />
+          </div>
+          <div>
+            <label style={{ fontSize: "14px", fontWeight: 600, marginBottom: "4px", display: "block" }}>Email</label>
+            <input type="email" style={s.input} value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} required />
+          </div>
+          <div>
+            <label style={{ fontSize: "14px", fontWeight: 600, marginBottom: "4px", display: "block" }}>Password (min 6 chars)</label>
+            <input type="password" style={s.input} value={form.password} onChange={e => setForm({ ...form, password: e.target.value })} required minLength={6} />
+          </div>
+          <div>
+            <label style={{ fontSize: "14px", fontWeight: 600, marginBottom: "4px", display: "block" }}>Confirm Password</label>
+            <input type="password" style={s.input} value={form.confirm_password} onChange={e => setForm({ ...form, confirm_password: e.target.value })} required />
+          </div>
+          <button type="submit" style={{ ...s.btn("primary"), marginTop: "8px", width: "100%" }} disabled={loading}>
+            {loading ? "Registering..." : "Register Free"}
+          </button>
+        </form>
+        <div style={{ textAlign: "center", marginTop: "16px", fontSize: "14px", color: colors.muted }}>
+          Already have an account? <span style={{ color: colors.primary, cursor: "pointer", fontWeight: 600 }} onClick={() => setActivePage("login")}>Login</span>
+        </div>
+      </AuthContainer>
+    );
+  };
+
   const renderPage = () => {
     if (activePage === "home") return <LandingPage />;
+    if (activePage === "login") return <LoginPage />;
+    if (activePage === "register") return <RegisterPage />;
+
     const pageMap = {
       dashboard: <Dashboard />,
       "ai-detect": <AiDetection />,
@@ -974,7 +1150,7 @@ export default function EcoTrace() {
     return pageMap[activePage] || <Dashboard />;
   };
 
-  const isLanding = activePage === "home";
+  const isLanding = activePage === "home" || activePage === "login" || activePage === "register";
 
   return (
     <div style={s.app}>
@@ -1012,9 +1188,12 @@ export default function EcoTrace() {
             <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
               <div style={{ width: "36px", height: "36px", background: "linear-gradient(135deg, #22c55e, #4ade80)", borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "18px", flexShrink: 0 }}>👤</div>
               {sidebarOpen && (
-                <div>
-                  <div style={{ fontSize: "13px", fontWeight: 700, color: "#fff" }}>Alex Chen</div>
-                  <div style={{ fontSize: "11px", color: "rgba(255,255,255,0.4)" }}>Eco Warrior</div>
+                <div style={{ flex: 1, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <div>
+                    <div style={{ fontSize: "13px", fontWeight: 700, color: "#fff", maxWidth: "120px", overflow: "hidden", textOverflow: "ellipsis" }}>{userProfile?.username || "Eco Warrior"}</div>
+                    <div style={{ fontSize: "11px", color: "rgba(255,255,255,0.4)" }}>EcoPoints: {userProfile?.eco_points || userPoints}</div>
+                  </div>
+                  <button onClick={handleLogout} style={{ background: "none", border: "none", color: "#ef4444", cursor: "pointer", fontSize: "16px" }} title="Logout">🚪</button>
                 </div>
               )}
             </div>
@@ -1036,7 +1215,7 @@ export default function EcoTrace() {
             <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
               <div style={{ display: "flex", alignItems: "center", gap: "6px", background: "#f0fdf4", padding: "6px 14px", borderRadius: "20px", border: `1px solid #bbf7d0` }}>
                 <span style={{ fontSize: "16px" }}>⭐</span>
-                <span style={{ fontWeight: 700, fontSize: "14px", color: colors.primary }}>{userPoints.toLocaleString()} pts</span>
+                <span style={{ fontWeight: 700, fontSize: "14px", color: colors.primary }}>{userProfile?.eco_points || userPoints} pts</span>
               </div>
               <button onClick={() => setChatOpen(o => !o)} style={{ background: "linear-gradient(135deg, #22c55e, #16a34a)", border: "none", borderRadius: "50%", width: "40px", height: "40px", cursor: "pointer", fontSize: "20px", display: "flex", alignItems: "center", justifyContent: "center" }}>💬</button>
               <div style={{ width: "36px", height: "36px", background: "linear-gradient(135deg, #22c55e, #4ade80)", borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "18px", cursor: "pointer" }}>👤</div>
@@ -1092,8 +1271,8 @@ export default function EcoTrace() {
 
       {/* Notification Toast */}
       {notification && (
-        <div style={{ position: "fixed", top: "24px", right: "24px", background: "#fff", borderRadius: "14px", padding: "16px 24px", boxShadow: "0 8px 32px rgba(0,0,0,0.15)", zIndex: 300, display: "flex", gap: "12px", alignItems: "center", animation: "slideIn 0.3s ease", borderLeft: `4px solid ${colors.primary}`, maxWidth: "360px" }}>
-          <span style={{ fontSize: "20px" }}>✅</span>
+        <div style={{ position: "fixed", top: "24px", right: "24px", background: "#fff", borderRadius: "14px", padding: "16px 24px", boxShadow: "0 8px 32px rgba(0,0,0,0.15)", zIndex: 300, display: "flex", gap: "12px", alignItems: "center", animation: "slideIn 0.3s ease", borderLeft: `4px solid ${notification.type === 'error' ? '#ef4444' : colors.primary}`, maxWidth: "360px" }}>
+          <span style={{ fontSize: "20px" }}>{notification.type === 'error' ? '❌' : '✅'}</span>
           <span style={{ fontWeight: 600, fontSize: "14px" }}>{notification.msg}</span>
         </div>
       )}
