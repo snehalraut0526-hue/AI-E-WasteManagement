@@ -84,8 +84,8 @@ const DonutChart = ({ percentage, color, size = 80 }) => {
   const dash = (percentage / 100) * circ;
   return (
     <svg width={size} height={size} style={{ transform: "rotate(-90deg)" }}>
-      <circle cx={size/2} cy={size/2} r={r} fill="none" stroke="#e5e7eb" strokeWidth="10" />
-      <circle cx={size/2} cy={size/2} r={r} fill="none" stroke={color} strokeWidth="10"
+      <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="#e5e7eb" strokeWidth="10" />
+      <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke={color} strokeWidth="10"
         strokeDasharray={`${dash} ${circ}`} strokeLinecap="round"
         style={{ transition: "stroke-dasharray 1s ease" }} />
     </svg>
@@ -250,7 +250,7 @@ export default function EcoTrace() {
 
       {/* Floating Icons */}
       <div style={{ display: "flex", justifyContent: "center", gap: "40px", padding: "0 48px 60px", flexWrap: "wrap" }}>
-        {[["🤖","AI Detection"],["📍","Find Centers"],["🚚","Free Pickup"],["🏆","Earn Rewards"]].map(([icon, label]) => (
+        {[["🤖", "AI Detection"], ["📍", "Find Centers"], ["🚚", "Free Pickup"], ["🏆", "Earn Rewards"]].map(([icon, label]) => (
           <div key={label} style={{ textAlign: "center", padding: "24px 28px", background: "rgba(255,255,255,0.05)", borderRadius: "20px", border: "1px solid rgba(255,255,255,0.1)", backdropFilter: "blur(8px)", minWidth: "120px" }}>
             <div style={{ fontSize: "36px", marginBottom: "8px" }}>{icon}</div>
             <div style={{ fontSize: "13px", color: "rgba(255,255,255,0.7)", fontWeight: 600 }}>{label}</div>
@@ -514,7 +514,7 @@ export default function EcoTrace() {
       <div style={{ ...s.card, marginTop: "24px" }}>
         <h3 style={{ fontWeight: 700, marginBottom: "16px" }}>🔬 Detectable Device Categories</h3>
         <div style={{ display: "flex", flexWrap: "wrap", gap: "12px" }}>
-          {[["📱","Smartphones"],["💻","Laptops"],["🖥️","Monitors"],["⌨️","Keyboards"],["🔋","Batteries"],["📺","TVs"],["🖨️","Printers"],["🎮","Gaming Consoles"],["🔌","Cables & Adapters"],["📷","Cameras"],["🎧","Audio Devices"],["🏠","Smart Home"]].map(([icon, name]) => (
+          {[["📱", "Smartphones"], ["💻", "Laptops"], ["🖥️", "Monitors"], ["⌨️", "Keyboards"], ["🔋", "Batteries"], ["📺", "TVs"], ["🖨️", "Printers"], ["🎮", "Gaming Consoles"], ["🔌", "Cables & Adapters"], ["📷", "Cameras"], ["🎧", "Audio Devices"], ["🏠", "Smart Home"]].map(([icon, name]) => (
             <div key={name} style={{ display: "flex", alignItems: "center", gap: "8px", padding: "10px 16px", background: "#f8fafc", borderRadius: "10px", border: `1px solid ${colors.border}`, fontSize: "14px", fontWeight: 500 }}>
               <span>{icon}</span><span>{name}</span>
             </div>
@@ -531,7 +531,7 @@ export default function EcoTrace() {
 
       <div style={{ display: "flex", gap: "12px", marginBottom: "24px" }}>
         <input style={{ ...s.input, flex: 1, maxWidth: "340px" }} placeholder="🔍 Search by location or name..." />
-        {["all","phones","batteries","appliances"].map(f => (
+        {["all", "phones", "batteries", "appliances"].map(f => (
           <button key={f} onClick={() => setMapFilter(f)} style={{ ...s.btn(mapFilter === f ? "primary" : "secondary"), padding: "10px 18px", fontSize: "13px", textTransform: "capitalize" }}>{f}</button>
         ))}
       </div>
@@ -607,7 +607,7 @@ export default function EcoTrace() {
         <div style={{ ...s.card, textAlign: "center", padding: "60px", maxWidth: "500px", margin: "0 auto" }}>
           <div style={{ fontSize: "72px", marginBottom: "20px" }}>🎉</div>
           <h2 style={{ fontSize: "24px", fontWeight: 800, marginBottom: "12px" }}>Pickup Scheduled!</h2>
-          <p style={{ color: colors.muted, marginBottom: "24px" }}>Your pickup request <strong>ECO-2024-{Math.floor(Math.random()*9000+1000)}</strong> has been confirmed. A certified agent will contact you shortly.</p>
+          <p style={{ color: colors.muted, marginBottom: "24px" }}>Your pickup request <strong>ECO-2024-{Math.floor(Math.random() * 9000 + 1000)}</strong> has been confirmed. A certified agent will contact you shortly.</p>
           <div style={{ background: "#f0fdf4", borderRadius: "12px", padding: "16px", marginBottom: "24px", textAlign: "left" }}>
             <div style={{ fontSize: "13px", color: colors.muted }}>📅 Date: {pickupForm.date || "Flexible"}</div>
             <div style={{ fontSize: "13px", color: colors.muted, marginTop: "4px" }}>📦 Device: {pickupForm.device}</div>
@@ -731,7 +731,7 @@ export default function EcoTrace() {
       <div style={{ ...s.card, marginBottom: "24px" }}>
         <h3 style={{ fontWeight: 700, marginBottom: "16px" }}>⚡ How to Earn Points</h3>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "12px" }}>
-          {[["📱","Smartphone","80 pts"],["💻","Laptop","150 pts"],["🔋","Battery","60 pts"],["📺","TV/Monitor","120 pts"]].map(([i,l,p]) => (
+          {[["📱", "Smartphone", "80 pts"], ["💻", "Laptop", "150 pts"], ["🔋", "Battery", "60 pts"], ["📺", "TV/Monitor", "120 pts"]].map(([i, l, p]) => (
             <div key={l} style={{ textAlign: "center", padding: "16px", background: "#f0fdf4", borderRadius: "12px" }}>
               <div style={{ fontSize: "28px" }}>{i}</div>
               <div style={{ fontWeight: 600, fontSize: "13px", marginTop: "6px" }}>{l}</div>
@@ -745,7 +745,7 @@ export default function EcoTrace() {
       <div style={{ ...s.card, marginBottom: "24px" }}>
         <h3 style={{ fontWeight: 700, marginBottom: "16px" }}>🏅 Your Eco Badges</h3>
         <div style={{ display: "flex", gap: "16px" }}>
-          {[["🌱","First Recycle","Earned"],["⚡","Power Saver","Earned"],["🌍","Earth Hero","Earned"],["🏆","Eco Warrior","Earned"],["💎","Diamond Recycler","Locked"],["🌟","Legend","Locked"]].map(([icon, name, status]) => (
+          {[["🌱", "First Recycle", "Earned"], ["⚡", "Power Saver", "Earned"], ["🌍", "Earth Hero", "Earned"], ["🏆", "Eco Warrior", "Earned"], ["💎", "Diamond Recycler", "Locked"], ["🌟", "Legend", "Locked"]].map(([icon, name, status]) => (
             <div key={name} style={{ textAlign: "center", opacity: status === "Locked" ? 0.4 : 1 }}>
               <div style={{ width: "60px", height: "60px", background: status === "Earned" ? "linear-gradient(135deg, #f0fdf4, #dcfce7)" : "#f1f5f9", borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "28px", margin: "0 auto 6px", border: `2px solid ${status === "Earned" ? colors.primary : colors.border}` }}>{icon}</div>
               <div style={{ fontSize: "11px", fontWeight: 600, color: status === "Earned" ? colors.dark : colors.muted }}>{name}</div>
