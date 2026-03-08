@@ -16,3 +16,22 @@ class CustomUser(AbstractUser):
 
     def __str__(self):
         return self.email
+
+class PickupRequest(models.Model):
+    STATUS_CHOICES = (
+        ('scheduled', 'Scheduled'),
+        ('in-transit', 'In Transit'),
+        ('completed', 'Completed'),
+    )
+
+    user = models.ForeignKey(CustomUser, on_delete=models.CASCADE, related_name='pickup_requests')
+    device = models.CharField(max_length=255)
+    qty = models.IntegerField(default=1)
+    address = models.TextField()
+    date = models.DateField(null=True, blank=True)
+    notes = models.TextField(blank=True)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='scheduled')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"Pickup #{self.id} for {self.user.email} - {self.device}"

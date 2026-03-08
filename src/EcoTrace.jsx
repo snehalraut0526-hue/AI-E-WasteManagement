@@ -113,6 +113,7 @@ export default function EcoTrace() {
   const [pickupStep, setPickupStep] = useState(1);
   const [pickupForm, setPickupForm] = useState({ device: "", qty: 1, address: "", date: "", notes: "" });
   const [pickupSubmitted, setPickupSubmitted] = useState(false);
+  const [pickupRequests, setPickupRequests] = useState([]);
   const [notification, setNotification] = useState(null);
   const [mapFilter, setMapFilter] = useState("all");
   const [userPoints, setUserPoints] = useState(1840);
@@ -122,6 +123,27 @@ export default function EcoTrace() {
   useEffect(() => {
     if (chatEndRef.current) chatEndRef.current.scrollIntoView({ behavior: "smooth" });
   }, [chatMessages]);
+
+  const loadPickupRequests = async () => {
+    if (!isAuthenticated) return;
+    try {
+      const res = await fetch(`${BASE_URL}/pickups/`, {
+        headers: { "Authorization": `Bearer ${localStorage.getItem("access")}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setPickupRequests(data);
+      }
+    } catch (e) {
+      console.error("Failed to load pickps", e);
+    }
+  };
+
+  useEffect(() => {
+    if (activePage === "pickup" && isAuthenticated) {
+      loadPickupRequests();
+    }
+  }, [activePage, isAuthenticated]);
 
   const showNotif = (msg, type = "success") => {
     setNotification({ msg, type });
@@ -629,6 +651,16 @@ export default function EcoTrace() {
       <h1 style={{ fontSize: "28px", fontWeight: 800, marginBottom: "8px" }}>🚚 Schedule a Pickup</h1>
       <p style={{ color: colors.muted, marginBottom: "28px" }}>Request a free doorstep collection of your e-waste</p>
 
+      {!isAuthenticated && (
+        <div style={{ background: "#fefce8", border: "1px solid #fde047", borderRadius: "12px", padding: "16px 20px", marginBottom: "24px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div>
+            <div style={{ fontWeight: 700, color: "#854d0e" }}>🔒 Login Required to Schedule a Pickup</div>
+            <div style={{ fontSize: "13px", color: "#713f12", marginTop: "4px" }}>Please log in to save your pickup request to your account.</div>
+          </div>
+          <button onClick={() => setActivePage("login")} style={{ ...s.btn("primary"), padding: "8px 20px" }}>Login</button>
+        </div>
+      )}
+
       {/* Progress */}
       <div style={{ display: "flex", gap: "0", marginBottom: "32px", alignItems: "center" }}>
         {["Device Info", "Address", "Confirm"].map((step, i) => (
@@ -719,7 +751,38 @@ export default function EcoTrace() {
                 </div>
                 <div style={{ display: "flex", gap: "12px" }}>
                   <button onClick={() => setPickupStep(2)} style={{ ...s.btn("secondary"), flex: 1 }}>← Back</button>
-                  <button onClick={() => setPickupSubmitted(true)} style={{ ...s.btn("primary"), flex: 1 }}>✅ Confirm Pickup</button>
+                  <button onClick={async () => {
+                    if (!isAuthenticated) {
+                      showNotif("Please log in first to schedule a pickup!", "error");
+                      setActivePage("login");
+                      return;
+                    }
+                    try {
+                      const payload = { ...pickupForm };
+                      if (!payload.date) payload.date = null;
+
+                      const res = await fetch(`${BASE_URL}/pickups/`, {
+                        method: "POST",
+                        headers: {
+                          "Content-Type": "application/json",
+                          "Authorization": `Bearer ${localStorage.getItem("access")}`
+                        },
+                        body: JSON.stringify(payload)
+                      });
+                      if (res.ok) {
+                        await loadPickupRequests();
+                        setPickupSubmitted(true);
+                      } else if (res.status === 401) {
+                        showNotif("Session expired. Please log in again.", "error");
+                        setActivePage("login");
+                      } else {
+                        const errData = await res.json();
+                        showNotif(JSON.stringify(errData) || "Failed to schedule pickup", "error");
+                      }
+                    } catch (e) {
+                      showNotif("Network error", "error");
+                    }
+                  }} style={{ ...s.btn("primary"), flex: 1 }}>✅ Confirm Pickup</button>
                 </div>
               </div>
             )}
@@ -728,18 +791,22 @@ export default function EcoTrace() {
           {/* Existing Requests */}
           <div style={s.card}>
             <h3 style={{ fontWeight: 700, marginBottom: "16px" }}>Your Pickup History</h3>
-            {PICKUP_REQUESTS.map(req => (
+            {pickupRequests.map(req => (
               <div key={req.id} style={{ padding: "14px", background: "#f8fafc", borderRadius: "12px", marginBottom: "12px", border: `1px solid ${colors.border}` }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <div style={{ fontWeight: 700, fontSize: "14px" }}>{req.id}</div>
+                  <div style={{ fontWeight: 700, fontSize: "14px" }}>ECO-{String(req.id).padStart(5, '0')}</div>
                   <span style={s.badge(req.status === "completed" ? "#22c55e" : req.status === "in-transit" ? "#0ea5e9" : "#f59e0b")}>
                     {req.status === "completed" ? "✅ Completed" : req.status === "in-transit" ? "🚚 In Transit" : "📅 Scheduled"}
                   </span>
                 </div>
-                <div style={{ fontSize: "13px", color: colors.muted, marginTop: "6px" }}>📦 {req.device}</div>
-                <div style={{ fontSize: "13px", color: colors.muted }}>📅 {req.date}</div>
+                <div style={{ fontSize: "13px", color: colors.muted, marginTop: "6px" }}>📦 {req.device} (x{req.qty})</div>
+                <div style={{ fontSize: "13px", color: colors.muted }}>📅 {req.date || "Flexible Timing"}</div>
+                <div style={{ fontSize: "12px", color: colors.muted, marginTop: "4px" }}>📍 {req.address}</div>
               </div>
             ))}
+            {pickupRequests.length === 0 && (
+              <div style={{ fontSize: "13px", color: colors.muted, textAlign: "center", padding: "20px" }}>No pickup requests found.</div>
+            )}
           </div>
         </div>
       )}
@@ -1134,20 +1201,20 @@ export default function EcoTrace() {
   };
 
   const renderPage = () => {
-    if (activePage === "home") return <LandingPage />;
+    if (activePage === "home") return LandingPage();
     if (activePage === "login") return <LoginPage />;
     if (activePage === "register") return <RegisterPage />;
 
     const pageMap = {
-      dashboard: <Dashboard />,
-      "ai-detect": <AiDetection />,
-      map: <MapPage />,
-      pickup: <PickupPage />,
-      rewards: <RewardsPage />,
-      admin: <AdminPage />,
-      education: <EducationPage />,
+      dashboard: Dashboard(),
+      "ai-detect": AiDetection(),
+      map: MapPage(),
+      pickup: PickupPage(),
+      rewards: RewardsPage(),
+      admin: AdminPage(),
+      education: EducationPage(),
     };
-    return pageMap[activePage] || <Dashboard />;
+    return pageMap[activePage] || Dashboard();
   };
 
   const isLanding = activePage === "home" || activePage === "login" || activePage === "register";

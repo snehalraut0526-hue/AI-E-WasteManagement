@@ -31,3 +31,11 @@ class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
         fields = ['id', 'email', 'username', 'full_name', 'phone', 'eco_points', 'items_recycled', 'created_at']
+
+from .models import PickupRequest
+
+class PickupRequestSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = PickupRequest
+        fields = ['id', 'user', 'device', 'qty', 'address', 'date', 'notes', 'status', 'created_at']
+        read_only_fields = ['id', 'user', 'status', 'created_at']
