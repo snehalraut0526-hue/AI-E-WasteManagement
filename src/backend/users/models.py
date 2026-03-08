@@ -35,3 +35,19 @@ class PickupRequest(models.Model):
 
     def __str__(self):
         return f"Pickup #{self.id} for {self.user.email} - {self.device}"
+
+class RecyclingCenter(models.Model):
+    name = models.CharField(max_length=255)
+    address = models.TextField()
+    phone = models.CharField(max_length=30, blank=True)
+    lat = models.FloatField()
+    lng = models.FloatField()
+    rating = models.FloatField(default=4.0)
+    open_now = models.BooleanField(default=True)
+    types = models.CharField(max_length=500, help_text="Comma-separated types, e.g. Phones,Batteries")
+
+    def get_types_list(self):
+        return [t.strip() for t in self.types.split(',') if t.strip()]
+
+    def __str__(self):
+        return self.name

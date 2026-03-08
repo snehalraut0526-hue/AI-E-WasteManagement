@@ -1,4 +1,33 @@
 import { useState, useEffect, useRef } from "react";
+import { MapContainer, TileLayer, Marker, Popup, useMap } from "react-leaflet";
+import L from "leaflet";
+import "leaflet/dist/leaflet.css";
+
+// Fix leaflet marker icon resolution issue with webpack/vite
+delete L.Icon.Default.prototype._getIconUrl;
+L.Icon.Default.mergeOptions({
+  iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
+  iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
+  shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
+});
+
+const greenIcon = new L.Icon({
+  iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-green.png',
+  shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
+  iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34], shadowSize: [41, 41]
+});
+
+const greyIcon = new L.Icon({
+  iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-grey.png',
+  shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
+  iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34], shadowSize: [41, 41]
+});
+
+const goldIcon = new L.Icon({
+  iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-gold.png',
+  shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
+  iconSize: [30, 50], iconAnchor: [15, 50], popupAnchor: [1, -34], shadowSize: [41, 41]
+});
 
 const BASE_URL = "http://127.0.0.1:8000/api/users";
 
@@ -587,64 +616,142 @@ export default function EcoTrace() {
     </div>
   );
 
-  const MapPage = () => (
-    <div>
-      <h1 style={{ fontSize: "28px", fontWeight: 800, marginBottom: "8px" }}>📍 Nearby Recycling Centers</h1>
-      <p style={{ color: colors.muted, marginBottom: "28px" }}>Find certified e-waste recycling facilities near you</p>
+  const MapPage = () => {
+    const [centers, setCenters] = useState([]);
+    const [mapFilter, setMapFilter] = useState("all");
+    const [selectedId, setSelectedId] = useState(null);
+    const [search, setSearch] = useState("");
+    const cardRefs = useRef({});
 
-      <div style={{ display: "flex", gap: "12px", marginBottom: "24px" }}>
-        <input style={{ ...s.input, flex: 1, maxWidth: "340px" }} placeholder="🔍 Search by location or name..." />
-        {["all", "phones", "batteries", "appliances"].map(f => (
-          <button key={f} onClick={() => setMapFilter(f)} style={{ ...s.btn(mapFilter === f ? "primary" : "secondary"), padding: "10px 18px", fontSize: "13px", textTransform: "capitalize" }}>{f}</button>
-        ))}
-      </div>
+    useEffect(() => {
+      fetch(`${BASE_URL}/centers/`)
+        .then(r => r.json())
+        .then(data => setCenters(data))
+        .catch(() => { });
+    }, []);
 
-      <div style={s.grid2}>
-        {/* Mock Map */}
-        <div style={{ ...s.card, padding: 0, overflow: "hidden", minHeight: "400px", position: "relative" }}>
-          <div style={{ background: "linear-gradient(135deg, #dcfce7, #dbeafe)", height: "100%", minHeight: "400px", position: "relative", display: "flex", alignItems: "center", justifyContent: "center" }}>
-            <div style={{ position: "absolute", inset: 0, backgroundImage: "linear-gradient(rgba(0,0,0,0.03) 1px,transparent 1px),linear-gradient(90deg,rgba(0,0,0,0.03) 1px,transparent 1px)", backgroundSize: "40px 40px" }} />
-            {RECYCLING_CENTERS.map((c, i) => (
-              <div key={c.id} style={{ position: "absolute", top: `${20 + i * 20}%`, left: `${15 + i * 18}%`, cursor: "pointer" }}>
-                <div style={{ width: "36px", height: "36px", background: c.open ? colors.primary : "#9ca3af", borderRadius: "50% 50% 50% 0", transform: "rotate(-45deg)", border: "3px solid #fff", boxShadow: "0 2px 8px rgba(0,0,0,0.2)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                  <span style={{ transform: "rotate(45deg)", fontSize: "16px" }}>📍</span>
-                </div>
-                <div style={{ position: "absolute", top: "-32px", left: "50%", transform: "translateX(-50%)", background: "#fff", borderRadius: "6px", padding: "3px 8px", fontSize: "11px", fontWeight: 600, whiteSpace: "nowrap", boxShadow: "0 2px 8px rgba(0,0,0,0.1)" }}>{c.name}</div>
-              </div>
-            ))}
-            <div style={{ background: "rgba(255,255,255,0.9)", borderRadius: "12px", padding: "12px 16px", fontWeight: 600, color: colors.muted }}>Interactive Map View</div>
-          </div>
-        </div>
+    const filtered = centers.filter(c => {
+      const typeMatch = mapFilter === "all" || c.types.some(t => t.toLowerCase().includes(mapFilter.toLowerCase()));
+      const searchMatch = !search || c.name.toLowerCase().includes(search.toLowerCase()) || c.address.toLowerCase().includes(search.toLowerCase());
+      return typeMatch && searchMatch;
+    });
 
-        {/* Center List */}
-        <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
-          {RECYCLING_CENTERS.map(center => (
-            <div key={center.id} style={{ ...s.card, padding: "16px" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "10px" }}>
-                <div>
-                  <div style={{ fontWeight: 700, fontSize: "15px" }}>{center.name}</div>
-                  <div style={{ fontSize: "13px", color: colors.muted, marginTop: "2px" }}>{center.address}</div>
-                </div>
-                <span style={s.badge(center.open ? "#22c55e" : "#9ca3af")}>{center.open ? "Open" : "Closed"}</span>
-              </div>
-              <div style={{ display: "flex", gap: "16px", fontSize: "13px", color: colors.muted, marginBottom: "10px" }}>
-                <span>📏 {center.distance}</span>
-                <span>⭐ {center.rating}</span>
-                <span>📞 {center.phone}</span>
-              </div>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginBottom: "12px" }}>
-                {center.types.map(t => <span key={t} style={s.badge("#0ea5e9")}>{t}</span>)}
-              </div>
-              <div style={{ display: "flex", gap: "8px" }}>
-                <button style={{ ...s.btn("primary"), flex: 1, padding: "8px 12px", fontSize: "13px" }}>🗺️ Directions</button>
-                <button style={{ ...s.btn("secondary"), flex: 1, padding: "8px 12px", fontSize: "13px" }}>📞 Call</button>
-              </div>
-            </div>
+    const handleMarkerClick = (id) => {
+      setSelectedId(id);
+      if (cardRefs.current[id]) {
+        cardRefs.current[id].scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }
+    };
+
+    const mapCenter = filtered.length > 0
+      ? [filtered[0].lat, filtered[0].lng]
+      : [12.9716, 77.5946]; // Default: Bangalore
+
+    return (
+      <div>
+        <h1 style={{ fontSize: "28px", fontWeight: 800, marginBottom: "8px" }}>📍 Nearby Recycling Centers</h1>
+        <p style={{ color: colors.muted, marginBottom: "24px" }}>Find certified e-waste recycling facilities near you</p>
+
+        <div style={{ display: "flex", gap: "12px", marginBottom: "24px", flexWrap: "wrap" }}>
+          <input
+            style={{ ...s.input, flex: 1, minWidth: "200px", maxWidth: "340px" }}
+            placeholder="🔍 Search by name or location..."
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+          />
+          {["all", "Phones", "Batteries", "Appliances"].map(f => (
+            <button key={f} onClick={() => setMapFilter(f)} style={{ ...s.btn(mapFilter === f ? "primary" : "secondary"), padding: "10px 18px", fontSize: "13px" }}>
+              {f === "all" ? "All" : f}
+            </button>
           ))}
         </div>
+
+        <div style={s.grid2}>
+          {/* Leaflet Map */}
+          <div style={{ borderRadius: "16px", overflow: "hidden", boxShadow: "0 4px 24px rgba(0,0,0,0.1)", minHeight: "450px" }}>
+            {typeof window !== 'undefined' && (
+              <MapContainer
+                key={mapCenter.join(',')}
+                center={mapCenter}
+                zoom={12}
+                style={{ height: "450px", width: "100%" }}
+              >
+                <TileLayer
+                  attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+                  url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                />
+                {filtered.map(center => (
+                  <Marker
+                    key={center.id}
+                    position={[center.lat, center.lng]}
+                    icon={selectedId === center.id ? goldIcon : center.open_now ? greenIcon : greyIcon}
+                    eventHandlers={{ click: () => handleMarkerClick(center.id) }}
+                  >
+                    <Popup>
+                      <div style={{ minWidth: "180px" }}>
+                        <div style={{ fontWeight: 700, fontSize: "14px", marginBottom: "4px" }}>{center.name}</div>
+                        <div style={{ fontSize: "12px", color: "#6b7280", marginBottom: "6px" }}>{center.address}</div>
+                        <div style={{ fontSize: "12px", marginBottom: "6px" }}>⭐ {center.rating} &nbsp;|&nbsp; {center.open_now ? "🟢 Open" : "🔴 Closed"}</div>
+                        <a href={`https://maps.google.com/?q=${center.lat},${center.lng}`} target="_blank" rel="noreferrer"
+                          style={{ display: "inline-block", background: "#22c55e", color: "#fff", padding: "4px 12px", borderRadius: "8px", fontSize: "12px", textDecoration: "none", fontWeight: 600 }}>
+                          🗺️ Directions
+                        </a>
+                      </div>
+                    </Popup>
+                  </Marker>
+                ))}
+              </MapContainer>
+            )}
+          </div>
+
+          {/* Center List */}
+          <div style={{ display: "flex", flexDirection: "column", gap: "12px", maxHeight: "450px", overflowY: "auto", paddingRight: "4px" }}>
+            {filtered.length === 0 && (
+              <div style={{ ...s.card, textAlign: "center", color: colors.muted, padding: "40px" }}>No centers found</div>
+            )}
+            {filtered.map(center => (
+              <div
+                key={center.id}
+                ref={el => { cardRefs.current[center.id] = el; }}
+                onClick={() => setSelectedId(center.id)}
+                style={{ ...s.card, padding: "16px", cursor: "pointer", border: selectedId === center.id ? `2px solid ${colors.primary}` : `1px solid ${colors.border}`, transition: "all 0.2s" }}
+              >
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "10px" }}>
+                  <div>
+                    <div style={{ fontWeight: 700, fontSize: "15px" }}>{center.name}</div>
+                    <div style={{ fontSize: "13px", color: colors.muted, marginTop: "2px" }}>{center.address}</div>
+                  </div>
+                  <span style={s.badge(center.open_now ? "#22c55e" : "#9ca3af")}>{center.open_now ? "Open" : "Closed"}</span>
+                </div>
+                <div style={{ display: "flex", gap: "16px", fontSize: "13px", color: colors.muted, marginBottom: "10px" }}>
+                  <span>⭐ {center.rating}</span>
+                  <span>📞 {center.phone}</span>
+                </div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginBottom: "12px" }}>
+                  {center.types.map(t => <span key={t} style={s.badge("#0ea5e9")}>{t}</span>)}
+                </div>
+                <div style={{ display: "flex", gap: "8px" }}>
+                  <a
+                    href={`https://maps.google.com/?q=${center.lat},${center.lng}`}
+                    target="_blank" rel="noreferrer"
+                    style={{ ...s.btn("primary"), flex: 1, padding: "8px 12px", fontSize: "13px", textAlign: "center", textDecoration: "none", display: "flex", alignItems: "center", justifyContent: "center" }}
+                  >
+                    🗺️ Directions
+                  </a>
+                  <a
+                    href={`tel:${center.phone}`}
+                    style={{ ...s.btn("secondary"), flex: 1, padding: "8px 12px", fontSize: "13px", textAlign: "center", textDecoration: "none", display: "flex", alignItems: "center", justifyContent: "center" }}
+                  >
+                    📞 Call
+                  </a>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
       </div>
-    </div>
-  );
+    );
+  };
 
   const PickupPage = () => (
     <div>
@@ -1208,7 +1315,7 @@ export default function EcoTrace() {
     const pageMap = {
       dashboard: Dashboard(),
       "ai-detect": AiDetection(),
-      map: MapPage(),
+      map: <MapPage />,
       pickup: PickupPage(),
       rewards: RewardsPage(),
       admin: AdminPage(),
