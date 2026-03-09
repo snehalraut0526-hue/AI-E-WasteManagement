@@ -56,14 +56,7 @@ const RECYCLING_CENTERS = [
   { id: 4, name: "CircularTech Depot", address: "200 Recycle Blvd", distance: "5.5 km", rating: 4.7, open: true, phone: "+1 555-0104", types: ["Phones", "Tablets", "Printers"] },
 ];
 
-const REWARDS = [
-  { id: 1, name: "Coffee Voucher", points: 500, icon: "☕", category: "Food" },
-  { id: 2, name: "Plant a Tree", points: 300, icon: "🌱", category: "Eco" },
-  { id: 3, name: "10% Off Eco Store", points: 800, icon: "🛍️", category: "Shopping" },
-  { id: 4, name: "Eco Warrior Badge", points: 1000, icon: "🏅", category: "Badge" },
-  { id: 5, name: "Free Pickup", points: 1200, icon: "🚚", category: "Service" },
-  { id: 6, name: "Solar Charger", points: 2500, icon: "☀️", category: "Gift" },
-];
+
 
 const PICKUP_REQUESTS = [
   { id: "ECO-001", device: "Laptop + Charger", date: "2024-01-15", status: "completed", address: "123 Main St" },
@@ -145,9 +138,63 @@ export default function EcoTrace() {
   const [pickupRequests, setPickupRequests] = useState([]);
   const [notification, setNotification] = useState(null);
   const [mapFilter, setMapFilter] = useState("all");
-  const [userPoints, setUserPoints] = useState(1840);
-  const [redeemed, setRedeemed] = useState([]);
   const chatEndRef = useRef(null);
+  const [trackingPickup, setTrackingPickup] = useState(null);
+  const [isSimulating, setIsSimulating] = useState(false);
+  const [lastSubmissionId, setLastSubmissionId] = useState(null);
+  const [rewardsList, setRewardsList] = useState([]);
+  const [adminStats, setAdminStats] = useState(null);
+  const [adminPickups, setAdminPickups] = useState([]);
+  const [adminUsers, setAdminUsers] = useState([]);
+  const [isListening, setIsListening] = useState(false);
+  const [isMuted, setIsMuted] = useState(false);
+
+  const loadRewards = async () => {
+    try {
+      const res = await fetch(`${BASE_URL}/rewards/`, {
+        headers: { "Authorization": `Bearer ${localStorage.getItem("access")}` }
+      });
+      if (res.ok) {
+        setRewardsList(await res.json());
+      }
+    } catch (e) { }
+  };
+
+  const fetchTracking = async (trackingId) => {
+    try {
+      const res = await fetch(`${BASE_URL}/pickups/${trackingId}/`, {
+        headers: { "Authorization": `Bearer ${localStorage.getItem("access")}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setTrackingPickup(data);
+        return data;
+      }
+    } catch (e) { }
+    return null;
+  };
+
+  const simulateProgress = async (trackingId) => {
+    setIsSimulating(true);
+    try {
+      const res = await fetch(`${BASE_URL}/pickups/${trackingId}/advance/`, {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${localStorage.getItem("access")}`,
+          "Content-Type": "application/json"
+        }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setTrackingPickup(data);
+        loadPickupRequests();
+        if (data.status === "processed") {
+          showNotif("🎉 E-waste recycling complete! EcoPoints awarded.");
+        }
+      }
+    } catch (e) { }
+    setIsSimulating(false);
+  };
 
   useEffect(() => {
     if (chatEndRef.current) chatEndRef.current.scrollIntoView({ behavior: "smooth" });
@@ -172,7 +219,52 @@ export default function EcoTrace() {
     if (activePage === "pickup" && isAuthenticated) {
       loadPickupRequests();
     }
+    if (activePage === "rewards") {
+      loadRewards();
+    }
+    if (activePage === "admin" && userProfile?.is_staff) {
+      loadAdminData();
+    }
   }, [activePage, isAuthenticated]);
+
+  const loadAdminData = async () => {
+    try {
+      const headers = { "Authorization": `Bearer ${localStorage.getItem("access")}` };
+      const [statsRes, pickupsRes, usersRes] = await Promise.all([
+        fetch(`${BASE_URL}/admin/stats/`, { headers }),
+        fetch(`${BASE_URL}/admin/pickups/`, { headers }),
+        fetch(`${BASE_URL}/admin/users/`, { headers })
+      ]);
+
+      if (statsRes.ok) setAdminStats(await statsRes.json());
+      if (pickupsRes.ok) setAdminPickups(await pickupsRes.json());
+      if (usersRes.ok) setAdminUsers(await usersRes.json());
+    } catch (e) {
+      console.error("Failed to load admin data", e);
+    }
+  };
+
+  const handleAdminPickupUpdate = async (id, status) => {
+    try {
+      const res = await fetch(`${BASE_URL}/admin/pickups/${id}/update/`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${localStorage.getItem("access")}`
+        },
+        body: JSON.stringify({ status })
+      });
+      if (res.ok) {
+        showNotif(`Pickup ${status} successfully`);
+        loadAdminData();
+      } else {
+        const data = await res.json();
+        showNotif(data.error || "Update failed", "error");
+      }
+    } catch (e) {
+      showNotif("Network error", "error");
+    }
+  };
 
   const showNotif = (msg, type = "success") => {
     setNotification({ msg, type });
@@ -202,6 +294,56 @@ export default function EcoTrace() {
     showNotif("Logged out successfully");
   };
 
+  const speak = (text) => {
+    if (isMuted || !window.speechSynthesis) return;
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.rate = 1;
+    utterance.pitch = 1;
+    window.speechSynthesis.speak(utterance);
+  };
+
+  const startListening = () => {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      showNotif("Speech recognition not supported in this browser", "error");
+      return;
+    }
+
+    const recognition = new SpeechRecognition();
+    recognition.lang = 'en-US';
+    recognition.interimResults = false;
+    recognition.maxAlternatives = 1;
+
+    recognition.onstart = () => setIsListening(true);
+    recognition.onend = () => setIsListening(false);
+    recognition.onerror = () => setIsListening(false);
+
+    recognition.onresult = (event) => {
+      const transcript = event.results[0][0].transcript;
+      setChatInput(transcript);
+      // Auto-send after a short delay to let user see what was captured
+      setTimeout(() => {
+        handleVoiceSend(transcript);
+      }, 500);
+    };
+
+    recognition.start();
+  };
+
+  const handleVoiceSend = (text) => {
+    if (!text.trim()) return;
+    const userMsg = text.toLowerCase();
+    setChatMessages(m => [...m, { role: "user", text: text }]);
+    setChatInput("");
+    setTimeout(() => {
+      const key = Object.keys(CHAT_RESPONSES).find(k => userMsg.includes(k)) || "default";
+      const botMsg = CHAT_RESPONSES[key];
+      setChatMessages(m => [...m, { role: "bot", text: botMsg }]);
+      speak(botMsg);
+    }, 700);
+  };
+
   const sendChat = () => {
     if (!chatInput.trim()) return;
     const userMsg = chatInput.toLowerCase();
@@ -209,7 +351,9 @@ export default function EcoTrace() {
     setChatInput("");
     setTimeout(() => {
       const key = Object.keys(CHAT_RESPONSES).find(k => userMsg.includes(k)) || "default";
-      setChatMessages(m => [...m, { role: "bot", text: CHAT_RESPONSES[key] }]);
+      const botMsg = CHAT_RESPONSES[key];
+      setChatMessages(m => [...m, { role: "bot", text: botMsg }]);
+      speak(botMsg);
     }, 700);
   };
 
@@ -239,11 +383,35 @@ export default function EcoTrace() {
     setAiLoading(false);
   };
 
-  const redeemReward = (reward) => {
-    if (userPoints >= reward.points && !redeemed.includes(reward.id)) {
-      setUserPoints(p => p - reward.points);
-      setRedeemed(r => [...r, reward.id]);
-      showNotif(`🎉 "${reward.name}" redeemed successfully!`);
+  const redeemReward = async (reward) => {
+    if (!isAuthenticated) {
+      showNotif("Please log in to redeem rewards", "error");
+      setActivePage("login");
+      return;
+    }
+    try {
+      const res = await fetch(`${BASE_URL}/rewards/redeem/`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${localStorage.getItem("access")}`
+        },
+        body: JSON.stringify({ reward_id: reward.id })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        showNotif(`🎉 ${data.message}`);
+        loadRewards(); // Refresh redeemed status
+        // Refresh profile to get updated points
+        const profRes = await fetch(`${BASE_URL}/profile/`, {
+          headers: { "Authorization": `Bearer ${localStorage.getItem("access")}` }
+        });
+        if (profRes.ok) setUserProfile(await profRes.json());
+      } else {
+        showNotif(data.error || "Redemption failed", "error");
+      }
+    } catch (e) {
+      showNotif("Network error", "error");
     }
   };
 
@@ -411,17 +579,26 @@ export default function EcoTrace() {
     return (
       <div>
         <div style={{ marginBottom: "28px" }}>
-          <h1 style={{ fontSize: "28px", fontWeight: 800, color: colors.dark }}>Welcome back, Alex 👋</h1>
+          <h1 style={{ fontSize: "28px", fontWeight: 800, color: colors.dark }}>Welcome back, {userProfile?.full_name?.split(' ')[0] || userProfile?.username || "Eco Warrior"} 👋</h1>
           <p style={{ color: colors.muted, marginTop: "4px" }}>Here's your recycling impact summary</p>
         </div>
+
+        {pickupRequests.filter(r => r.status !== 'processed').length > 0 && (
+          <div style={{ marginBottom: "24px" }}>
+            <h3 style={{ fontWeight: 700, marginBottom: "16px" }}>📡 Live Waste Tracking</h3>
+            {pickupRequests.filter(r => r.status !== 'processed').slice(0, 1).map(p => (
+              <TrackingTimeline key={p.tracking_id} pickup={p} />
+            ))}
+          </div>
+        )}
 
         {/* KPI Cards */}
         <div style={s.grid4}>
           {[
-            { icon: "♻️", label: "Items Recycled", value: "47", sub: "+5 this month", color: "#22c55e" },
-            { icon: "⭐", label: "EcoPoints", value: "1,840", sub: "+320 earned", color: "#f59e0b" },
-            { icon: "🌿", label: "CO₂ Saved (kg)", value: "128", sub: "equiv. 64 trees", color: "#0ea5e9" },
-            { icon: "🥇", label: "Rank", value: "#142", sub: "Top 10% globally", color: "#8b5cf6" },
+            { icon: "♻️", label: "Items Recycled", value: userProfile?.items_recycled || "0", sub: "Lifetime impact", color: "#22c55e" },
+            { icon: "⭐", label: "EcoPoints", value: (userProfile?.eco_points || 0).toLocaleString(), sub: "Total balance", color: "#f59e0b" },
+            { icon: "🌿", label: "CO₂ Saved (kg)", value: (userProfile?.items_recycled * 2.5).toFixed(1) || "0", sub: "Estimated offset", color: "#0ea5e9" },
+            { icon: "🥇", label: "Rank", value: "#" + (1000 - (userProfile?.eco_points || 0) / 10).toFixed(0), sub: "Local leaderboard", color: "#8b5cf6" },
           ].map(k => (
             <div key={k.label} style={s.statCard(k.color)}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
@@ -606,7 +783,7 @@ export default function EcoTrace() {
       <div style={{ ...s.card, marginTop: "24px" }}>
         <h3 style={{ fontWeight: 700, marginBottom: "16px" }}>🔬 Detectable Device Categories</h3>
         <div style={{ display: "flex", flexWrap: "wrap", gap: "12px" }}>
-          {[["📱", "Smartphones"], ["💻", "Laptops"], ["🖥️", "Monitors"], ["⌨️", "Keyboards"], ["🔋", "Batteries"], ["📺", "TVs"], ["🖨️", "Printers"], ["🎮", "Gaming Consoles"], ["🔌", "Cables & Adapters"], ["📷", "Cameras"], ["🎧", "Audio Devices"], ["🏠", "Smart Home"]].map(([icon, name]) => (
+          {[["📱", "Smartphones"], ["💻", "Laptops"], ["🖥️", "Monitors"], ["⌨️", "Keyboards"], ["🔋", "Batteries"], ["📺", "TVs"], ["🖨️", "Printers"], ["🎮", "Gaming Consoles"], ["🔌", "Cables & Adapters"], ["📷", "Cameras"], ["🎧", "Audio Devices"], ["🏠", "Smart Home"], ["⚙️", "Others"]].map(([icon, name]) => (
             <div key={name} style={{ display: "flex", alignItems: "center", gap: "8px", padding: "10px 16px", background: "#f8fafc", borderRadius: "10px", border: `1px solid ${colors.border}`, fontSize: "14px", fontWeight: 500 }}>
               <span>{icon}</span><span>{name}</span>
             </div>
@@ -619,6 +796,7 @@ export default function EcoTrace() {
   const MapPage = () => {
     const [centers, setCenters] = useState([]);
     const [mapFilter, setMapFilter] = useState("all");
+    const [cityFilter, setCityFilter] = useState("Sangli"); // Default to Sangli for hackathon
     const [selectedId, setSelectedId] = useState(null);
     const [search, setSearch] = useState("");
     const cardRefs = useRef({});
@@ -632,8 +810,9 @@ export default function EcoTrace() {
 
     const filtered = centers.filter(c => {
       const typeMatch = mapFilter === "all" || c.types.some(t => t.toLowerCase().includes(mapFilter.toLowerCase()));
+      const cityMatch = cityFilter === "all" || c.address.toLowerCase().includes(cityFilter.toLowerCase());
       const searchMatch = !search || c.name.toLowerCase().includes(search.toLowerCase()) || c.address.toLowerCase().includes(search.toLowerCase());
-      return typeMatch && searchMatch;
+      return typeMatch && cityMatch && searchMatch;
     });
 
     const handleMarkerClick = (id) => {
@@ -645,12 +824,37 @@ export default function EcoTrace() {
 
     const mapCenter = filtered.length > 0
       ? [filtered[0].lat, filtered[0].lng]
-      : [12.9716, 77.5946]; // Default: Bangalore
+      : cityFilter === "Sangli" ? [16.8524, 74.5815] : [18.5204, 73.8567];
 
     return (
       <div>
         <h1 style={{ fontSize: "28px", fontWeight: 800, marginBottom: "8px" }}>📍 Nearby Recycling Centers</h1>
         <p style={{ color: colors.muted, marginBottom: "24px" }}>Find certified e-waste recycling facilities near you</p>
+
+        <div style={{ display: "flex", gap: "12px", marginBottom: "16px", flexWrap: "wrap" }}>
+          <div style={{ display: "flex", background: "#f1f5f9", padding: "4px", borderRadius: "12px", gap: "4px" }}>
+            {["all", "Pune", "Sangli"].map(city => (
+              <button
+                key={city}
+                onClick={() => setCityFilter(city)}
+                style={{
+                  padding: "8px 16px",
+                  borderRadius: "8px",
+                  border: "none",
+                  cursor: "pointer",
+                  fontSize: "13px",
+                  fontWeight: 600,
+                  background: cityFilter === city ? "#fff" : "transparent",
+                  color: cityFilter === city ? colors.primary : colors.muted,
+                  boxShadow: cityFilter === city ? "0 2px 4px rgba(0,0,0,0.05)" : "none",
+                  transition: "all 0.2s"
+                }}
+              >
+                {city === "all" ? "All Cities" : city}
+              </button>
+            ))}
+          </div>
+        </div>
 
         <div style={{ display: "flex", gap: "12px", marginBottom: "24px", flexWrap: "wrap" }}>
           <input
@@ -661,7 +865,7 @@ export default function EcoTrace() {
           />
           {["all", "Phones", "Batteries", "Appliances"].map(f => (
             <button key={f} onClick={() => setMapFilter(f)} style={{ ...s.btn(mapFilter === f ? "primary" : "secondary"), padding: "10px 18px", fontSize: "13px" }}>
-              {f === "all" ? "All" : f}
+              {f === "all" ? "All Types" : f}
             </button>
           ))}
         </div>
@@ -753,6 +957,74 @@ export default function EcoTrace() {
     );
   };
 
+
+
+  const TrackingTimeline = ({ pickup }) => {
+    const statusOrder = ['scheduled', 'collected', 'in-transit', 'at-facility', 'processed'];
+    const currentIndex = statusOrder.indexOf(pickup.status);
+
+    return (
+      <div style={{ ...s.card, padding: "24px", marginBottom: "24px", border: `2px solid ${colors.primary}`, boxShadow: "0 10px 25px rgba(0,0,0,0.1)" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "24px" }}>
+          <div>
+            <h3 style={{ fontWeight: 800, fontSize: "18px" }}>E-Waste Tracking: {pickup.tracking_id}</h3>
+            <p style={{ color: colors.muted, fontSize: "13px", marginTop: "4px" }}>Last updated: {new Date(pickup.updated_at).toLocaleString()}</p>
+          </div>
+          <button onClick={() => setTrackingPickup(null)} style={{ background: "none", border: "none", fontSize: "24px", cursor: "pointer", color: colors.muted }}>×</button>
+        </div>
+
+        <div style={{ position: "relative", padding: "10px 0" }}>
+          {statusOrder.map((step, i) => {
+            const isActive = i <= currentIndex;
+            // const isCurrent = i === currentIndex;
+            return (
+              <div key={step} style={{ display: "flex", gap: "16px", marginBottom: i < statusOrder.length - 1 ? "24px" : "0", position: "relative" }}>
+                <div style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
+                  <div style={{
+                    width: "28px", height: "28px", borderRadius: "50%",
+                    background: isActive ? colors.primary : colors.border,
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    color: "#fff", fontSize: "12px", zIndex: 2
+                  }}>
+                    {isActive ? "✓" : i + 1}
+                  </div>
+                  {i < statusOrder.length - 1 && (
+                    <div style={{
+                      flex: 1, width: "2px",
+                      background: i < currentIndex ? colors.primary : colors.border,
+                      position: "absolute", top: "28px", bottom: "-24px", left: "13px"
+                    }} />
+                  )}
+                </div>
+                <div>
+                  <div style={{
+                    fontSize: "14px", fontWeight: 700,
+                    color: i === currentIndex ? colors.primary : isActive ? colors.dark : colors.muted,
+                    textTransform: "capitalize"
+                  }}>{step.replace('-', ' ')}</div>
+                  <div style={{ fontSize: "12px", color: colors.muted, marginTop: "2px" }}>
+                    {isActive ? (i === 4 ? "Waste has been responsibly recycled!" : "Status updated and verified") : "Pending processing"}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        <div style={{ marginTop: "32px", padding: "16px", background: "#f8fafc", borderRadius: "12px", border: `1px dashed ${colors.border}` }}>
+          <div style={{ fontWeight: 700, fontSize: "13px", color: colors.muted, marginBottom: "8px" }}>🧪 Hackathon Demo Helper (Simulate Progress)</div>
+          <button
+            disabled={isSimulating || pickup.status === "processed"}
+            onClick={() => simulateProgress(pickup.tracking_id)}
+            style={{ ...s.btn("primary"), width: "100%", padding: "10px", fontSize: "13px" }}
+          >
+            {isSimulating ? "Processing..." : pickup.status === "processed" ? "Recycling Complete ✅" : "Advance to Next Stage →"}
+          </button>
+        </div>
+      </div>
+    );
+  };
+
   const PickupPage = () => (
     <div>
       <h1 style={{ fontSize: "28px", fontWeight: 800, marginBottom: "8px" }}>🚚 Schedule a Pickup</h1>
@@ -787,112 +1059,118 @@ export default function EcoTrace() {
         <div style={{ ...s.card, textAlign: "center", padding: "60px", maxWidth: "500px", margin: "0 auto" }}>
           <div style={{ fontSize: "72px", marginBottom: "20px" }}>🎉</div>
           <h2 style={{ fontSize: "24px", fontWeight: 800, marginBottom: "12px" }}>Pickup Scheduled!</h2>
-          <p style={{ color: colors.muted, marginBottom: "24px" }}>Your pickup request <strong>ECO-2024-{Math.floor(Math.random() * 9000 + 1000)}</strong> has been confirmed. A certified agent will contact you shortly.</p>
+          <p style={{ color: colors.muted, marginBottom: "24px" }}>Your pickup request <strong>{lastSubmissionId}</strong> has been confirmed. A certified agent will contact you shortly.</p>
           <div style={{ background: "#f0fdf4", borderRadius: "12px", padding: "16px", marginBottom: "24px", textAlign: "left" }}>
             <div style={{ fontSize: "13px", color: colors.muted }}>📅 Date: {pickupForm.date || "Flexible"}</div>
             <div style={{ fontSize: "13px", color: colors.muted, marginTop: "4px" }}>📦 Device: {pickupForm.device}</div>
             <div style={{ fontSize: "13px", color: colors.muted, marginTop: "4px" }}>📍 Address: {pickupForm.address}</div>
           </div>
-          <button onClick={() => { setPickupSubmitted(false); setPickupStep(1); setPickupForm({ device: "", qty: 1, address: "", date: "", notes: "" }); }} style={s.btn("primary")}>Schedule Another Pickup</button>
+          <button onClick={() => { fetchTracking(lastSubmissionId); setPickupSubmitted(false); }} style={{ ...s.btn("primary"), width: "100%", marginBottom: "12px" }}>Track This Waste Now 📍</button>
+          <button onClick={() => { setPickupSubmitted(false); setPickupStep(1); setPickupForm({ device: "", qty: 1, address: "", date: "", notes: "" }); }} style={s.btn("secondary")}>Schedule Another Pickup</button>
         </div>
       ) : (
         <div style={{ ...s.grid2 }}>
-          <div style={s.card}>
-            {pickupStep === 1 && (
-              <div>
-                <h3 style={{ fontWeight: 700, marginBottom: "20px" }}>Step 1: Device Information</h3>
-                <div style={{ marginBottom: "16px" }}>
-                  <label style={{ display: "block", fontWeight: 600, marginBottom: "8px", fontSize: "14px" }}>Device Type *</label>
-                  <select style={{ ...s.input }} value={pickupForm.device} onChange={e => setPickupForm(f => ({ ...f, device: e.target.value }))}>
-                    <option value="">Select device type...</option>
-                    <option>Smartphone / Tablet</option><option>Laptop / Desktop</option>
-                    <option>TV / Monitor</option><option>Printer / Scanner</option>
-                    <option>Batteries</option><option>Kitchen Appliances</option><option>Other Electronics</option>
-                  </select>
+          <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
+            {trackingPickup && <TrackingTimeline pickup={trackingPickup} />}
+            <div style={s.card}>
+              {pickupStep === 1 && (
+                <div>
+                  <h3 style={{ fontWeight: 700, marginBottom: "20px" }}>Step 1: Device Information</h3>
+                  <div style={{ marginBottom: "16px" }}>
+                    <label style={{ display: "block", fontWeight: 600, marginBottom: "8px", fontSize: "14px" }}>Device Type *</label>
+                    <select style={{ ...s.input }} value={pickupForm.device} onChange={e => setPickupForm(f => ({ ...f, device: e.target.value }))}>
+                      <option value="">Select device type...</option>
+                      <option>Smartphone / Tablet</option><option>Laptop / Desktop</option>
+                      <option>TV / Monitor</option><option>Printer / Scanner</option>
+                      <option>Batteries</option><option>Kitchen Appliances</option><option>Other Electronics</option>
+                    </select>
+                  </div>
+                  <div style={{ marginBottom: "16px" }}>
+                    <label style={{ display: "block", fontWeight: 600, marginBottom: "8px", fontSize: "14px" }}>Quantity</label>
+                    <div style={{ display: "flex", gap: "12px", alignItems: "center" }}>
+                      <button onClick={() => setPickupForm(f => ({ ...f, qty: Math.max(1, f.qty - 1) }))} style={{ width: "36px", height: "36px", borderRadius: "8px", border: `1px solid ${colors.border}`, cursor: "pointer", fontSize: "18px", background: "#fff" }}>−</button>
+                      <span style={{ fontSize: "20px", fontWeight: 700, minWidth: "40px", textAlign: "center" }}>{pickupForm.qty}</span>
+                      <button onClick={() => setPickupForm(f => ({ ...f, qty: f.qty + 1 }))} style={{ width: "36px", height: "36px", borderRadius: "8px", border: `1px solid ${colors.border}`, cursor: "pointer", fontSize: "18px", background: "#fff" }}>+</button>
+                    </div>
+                  </div>
+                  <div style={{ marginBottom: "16px" }}>
+                    <label style={{ display: "block", fontWeight: 600, marginBottom: "8px", fontSize: "14px" }}>Additional Notes</label>
+                    <textarea style={{ ...s.input, minHeight: "80px", resize: "vertical" }} placeholder="Describe condition, accessories included, etc." value={pickupForm.notes} onChange={e => setPickupForm(f => ({ ...f, notes: e.target.value }))} />
+                  </div>
+                  <button onClick={() => setPickupStep(2)} disabled={!pickupForm.device} style={{ ...s.btn("primary"), width: "100%", opacity: !pickupForm.device ? 0.5 : 1 }}>Next: Address →</button>
                 </div>
-                <div style={{ marginBottom: "16px" }}>
-                  <label style={{ display: "block", fontWeight: 600, marginBottom: "8px", fontSize: "14px" }}>Quantity</label>
-                  <div style={{ display: "flex", gap: "12px", alignItems: "center" }}>
-                    <button onClick={() => setPickupForm(f => ({ ...f, qty: Math.max(1, f.qty - 1) }))} style={{ width: "36px", height: "36px", borderRadius: "8px", border: `1px solid ${colors.border}`, cursor: "pointer", fontSize: "18px", background: "#fff" }}>−</button>
-                    <span style={{ fontSize: "20px", fontWeight: 700, minWidth: "40px", textAlign: "center" }}>{pickupForm.qty}</span>
-                    <button onClick={() => setPickupForm(f => ({ ...f, qty: f.qty + 1 }))} style={{ width: "36px", height: "36px", borderRadius: "8px", border: `1px solid ${colors.border}`, cursor: "pointer", fontSize: "18px", background: "#fff" }}>+</button>
+              )}
+              {pickupStep === 2 && (
+                <div>
+                  <h3 style={{ fontWeight: 700, marginBottom: "20px" }}>Step 2: Pickup Address</h3>
+                  <div style={{ marginBottom: "16px" }}>
+                    <label style={{ display: "block", fontWeight: 600, marginBottom: "8px", fontSize: "14px" }}>Full Address *</label>
+                    <textarea style={{ ...s.input, minHeight: "80px" }} placeholder="Enter your complete address..." value={pickupForm.address} onChange={e => setPickupForm(f => ({ ...f, address: e.target.value }))} />
+                  </div>
+                  <div style={{ marginBottom: "16px" }}>
+                    <label style={{ display: "block", fontWeight: 600, marginBottom: "8px", fontSize: "14px" }}>Preferred Date</label>
+                    <input type="date" style={s.input} value={pickupForm.date} onChange={e => setPickupForm(f => ({ ...f, date: e.target.value }))} />
+                  </div>
+                  <div style={{ display: "flex", gap: "12px" }}>
+                    <button onClick={() => setPickupStep(1)} style={{ ...s.btn("secondary"), flex: 1 }}>← Back</button>
+                    <button onClick={() => setPickupStep(3)} disabled={!pickupForm.address} style={{ ...s.btn("primary"), flex: 1, opacity: !pickupForm.address ? 0.5 : 1 }}>Review →</button>
                   </div>
                 </div>
-                <div style={{ marginBottom: "16px" }}>
-                  <label style={{ display: "block", fontWeight: 600, marginBottom: "8px", fontSize: "14px" }}>Additional Notes</label>
-                  <textarea style={{ ...s.input, minHeight: "80px", resize: "vertical" }} placeholder="Describe condition, accessories included, etc." value={pickupForm.notes} onChange={e => setPickupForm(f => ({ ...f, notes: e.target.value }))} />
-                </div>
-                <button onClick={() => setPickupStep(2)} disabled={!pickupForm.device} style={{ ...s.btn("primary"), width: "100%", opacity: !pickupForm.device ? 0.5 : 1 }}>Next: Address →</button>
-              </div>
-            )}
-            {pickupStep === 2 && (
-              <div>
-                <h3 style={{ fontWeight: 700, marginBottom: "20px" }}>Step 2: Pickup Address</h3>
-                <div style={{ marginBottom: "16px" }}>
-                  <label style={{ display: "block", fontWeight: 600, marginBottom: "8px", fontSize: "14px" }}>Full Address *</label>
-                  <textarea style={{ ...s.input, minHeight: "80px" }} placeholder="Enter your complete address..." value={pickupForm.address} onChange={e => setPickupForm(f => ({ ...f, address: e.target.value }))} />
-                </div>
-                <div style={{ marginBottom: "16px" }}>
-                  <label style={{ display: "block", fontWeight: 600, marginBottom: "8px", fontSize: "14px" }}>Preferred Date</label>
-                  <input type="date" style={s.input} value={pickupForm.date} onChange={e => setPickupForm(f => ({ ...f, date: e.target.value }))} />
-                </div>
-                <div style={{ display: "flex", gap: "12px" }}>
-                  <button onClick={() => setPickupStep(1)} style={{ ...s.btn("secondary"), flex: 1 }}>← Back</button>
-                  <button onClick={() => setPickupStep(3)} disabled={!pickupForm.address} style={{ ...s.btn("primary"), flex: 1, opacity: !pickupForm.address ? 0.5 : 1 }}>Review →</button>
-                </div>
-              </div>
-            )}
-            {pickupStep === 3 && (
-              <div>
-                <h3 style={{ fontWeight: 700, marginBottom: "20px" }}>Step 3: Confirm Request</h3>
-                <div style={{ background: "#f8fafc", borderRadius: "12px", padding: "16px", marginBottom: "20px" }}>
-                  {[["📦 Device", pickupForm.device], ["🔢 Quantity", pickupForm.qty], ["📍 Address", pickupForm.address], ["📅 Date", pickupForm.date || "Flexible"]].map(([k, v]) => (
-                    <div key={k} style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", borderBottom: `1px solid ${colors.border}`, fontSize: "14px" }}>
-                      <span style={{ color: colors.muted, fontWeight: 600 }}>{k}</span>
-                      <span style={{ fontWeight: 600 }}>{v}</span>
-                    </div>
-                  ))}
-                </div>
-                <div style={{ background: "#f0fdf4", borderRadius: "10px", padding: "12px 16px", marginBottom: "20px", fontSize: "13px", color: colors.primary }}>
-                  🏆 You'll earn approximately <strong>+{100 * pickupForm.qty} EcoPoints</strong> for this pickup!
-                </div>
-                <div style={{ display: "flex", gap: "12px" }}>
-                  <button onClick={() => setPickupStep(2)} style={{ ...s.btn("secondary"), flex: 1 }}>← Back</button>
-                  <button onClick={async () => {
-                    if (!isAuthenticated) {
-                      showNotif("Please log in first to schedule a pickup!", "error");
-                      setActivePage("login");
-                      return;
-                    }
-                    try {
-                      const payload = { ...pickupForm };
-                      if (!payload.date) payload.date = null;
-
-                      const res = await fetch(`${BASE_URL}/pickups/`, {
-                        method: "POST",
-                        headers: {
-                          "Content-Type": "application/json",
-                          "Authorization": `Bearer ${localStorage.getItem("access")}`
-                        },
-                        body: JSON.stringify(payload)
-                      });
-                      if (res.ok) {
-                        await loadPickupRequests();
-                        setPickupSubmitted(true);
-                      } else if (res.status === 401) {
-                        showNotif("Session expired. Please log in again.", "error");
+              )}
+              {pickupStep === 3 && (
+                <div>
+                  <h3 style={{ fontWeight: 700, marginBottom: "20px" }}>Step 3: Confirm Request</h3>
+                  <div style={{ background: "#f8fafc", borderRadius: "12px", padding: "16px", marginBottom: "20px" }}>
+                    {[["📦 Device", pickupForm.device], ["🔢 Quantity", pickupForm.qty], ["📍 Address", pickupForm.address], ["📅 Date", pickupForm.date || "Flexible"]].map(([k, v]) => (
+                      <div key={k} style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", borderBottom: `1px solid ${colors.border}`, fontSize: "14px" }}>
+                        <span style={{ color: colors.muted, fontWeight: 600 }}>{k}</span>
+                        <span style={{ fontWeight: 600 }}>{v}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <div style={{ background: "#f0fdf4", borderRadius: "10px", padding: "12px 16px", marginBottom: "20px", fontSize: "13px", color: colors.primary }}>
+                    🏆 You'll earn approximately <strong>+{100 * pickupForm.qty} EcoPoints</strong> for this pickup!
+                  </div>
+                  <div style={{ display: "flex", gap: "12px" }}>
+                    <button onClick={() => setPickupStep(2)} style={{ ...s.btn("secondary"), flex: 1 }}>← Back</button>
+                    <button onClick={async () => {
+                      if (!isAuthenticated) {
+                        showNotif("Please log in first to schedule a pickup!", "error");
                         setActivePage("login");
-                      } else {
-                        const errData = await res.json();
-                        showNotif(JSON.stringify(errData) || "Failed to schedule pickup", "error");
+                        return;
                       }
-                    } catch (e) {
-                      showNotif("Network error", "error");
-                    }
-                  }} style={{ ...s.btn("primary"), flex: 1 }}>✅ Confirm Pickup</button>
+                      try {
+                        const payload = { ...pickupForm };
+                        if (!payload.date) payload.date = null;
+
+                        const res = await fetch(`${BASE_URL}/pickups/`, {
+                          method: "POST",
+                          headers: {
+                            "Content-Type": "application/json",
+                            "Authorization": `Bearer ${localStorage.getItem("access")}`
+                          },
+                          body: JSON.stringify(payload)
+                        });
+                        if (res.ok) {
+                          const data = await res.json();
+                          setLastSubmissionId(data.tracking_id);
+                          await loadPickupRequests();
+                          setPickupSubmitted(true);
+                        } else if (res.status === 401) {
+                          showNotif("Session expired. Please log in again.", "error");
+                          setActivePage("login");
+                        } else {
+                          const errData = await res.json();
+                          showNotif(JSON.stringify(errData) || "Failed to schedule pickup", "error");
+                        }
+                      } catch (e) {
+                        showNotif("Network error", "error");
+                      }
+                    }} style={{ ...s.btn("primary"), flex: 1 }}>✅ Confirm Pickup</button>
+                  </div>
                 </div>
-              </div>
-            )}
+              )}
+            </div>
           </div>
 
           {/* Existing Requests */}
@@ -909,6 +1187,12 @@ export default function EcoTrace() {
                 <div style={{ fontSize: "13px", color: colors.muted, marginTop: "6px" }}>📦 {req.device} (x{req.qty})</div>
                 <div style={{ fontSize: "13px", color: colors.muted }}>📅 {req.date || "Flexible Timing"}</div>
                 <div style={{ fontSize: "12px", color: colors.muted, marginTop: "4px" }}>📍 {req.address}</div>
+                <button
+                  onClick={() => fetchTracking(req.tracking_id)}
+                  style={{ ...s.btn("accent"), width: "100%", padding: "8px", fontSize: "12px", marginTop: "12px" }}
+                >
+                  📍 Track Waste
+                </button>
               </div>
             ))}
             {pickupRequests.length === 0 && (
@@ -929,16 +1213,16 @@ export default function EcoTrace() {
       <div style={{ background: "linear-gradient(135deg, #0f172a, #0d2d1a)", borderRadius: "20px", padding: "32px", color: "#fff", marginBottom: "28px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <div>
           <div style={{ fontSize: "13px", color: "rgba(255,255,255,0.5)", marginBottom: "4px" }}>YOUR ECOPOINTS BALANCE</div>
-          <div style={{ fontSize: "52px", fontWeight: 900, background: "linear-gradient(135deg, #22c55e, #4ade80)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>{userPoints.toLocaleString()}</div>
+          <div style={{ fontSize: "52px", fontWeight: 900, background: "linear-gradient(135deg, #22c55e, #4ade80)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>{(userProfile?.eco_points || 0).toLocaleString()}</div>
           <div style={{ fontSize: "14px", color: "rgba(255,255,255,0.6)", marginTop: "4px" }}>🌱 Eco Warrior Level · Top 10% Recycler</div>
         </div>
         <div style={{ textAlign: "right" }}>
           <div style={{ fontSize: "13px", color: "rgba(255,255,255,0.5)" }}>NEXT LEVEL</div>
           <div style={{ fontSize: "18px", fontWeight: 700, color: "#fbbf24", marginTop: "4px" }}>2,000 pts</div>
           <div style={{ width: "160px", height: "8px", background: "rgba(255,255,255,0.1)", borderRadius: "4px", marginTop: "8px", overflow: "hidden" }}>
-            <div style={{ width: `${(userPoints / 2000) * 100}%`, height: "100%", background: "linear-gradient(90deg, #22c55e, #4ade80)", borderRadius: "4px" }} />
+            <div style={{ width: `${(Math.min(userProfile?.eco_points || 0, 2000) / 2000) * 100}%`, height: "100%", background: "linear-gradient(90deg, #22c55e, #4ade80)", borderRadius: "4px" }} />
           </div>
-          <div style={{ fontSize: "12px", color: "rgba(255,255,255,0.4)", marginTop: "4px" }}>{2000 - userPoints} pts to Gold</div>
+          <div style={{ fontSize: "12px", color: "rgba(255,255,255,0.4)", marginTop: "4px" }}>{Math.max(0, 2000 - (userProfile?.eco_points || 0))} pts to Gold</div>
         </div>
       </div>
 
@@ -972,16 +1256,16 @@ export default function EcoTrace() {
       {/* Redeemable Rewards */}
       <h3 style={{ fontWeight: 700, marginBottom: "16px" }}>🎁 Redeem Rewards</h3>
       <div style={s.grid3}>
-        {REWARDS.map(reward => {
-          const isRedeemed = redeemed.includes(reward.id);
-          const canAfford = userPoints >= reward.points;
+        {rewardsList.map(reward => {
+          const isRedeemed = reward.is_redeemed;
+          const canAfford = (userProfile?.eco_points || 0) >= reward.points_cost;
           return (
             <div key={reward.id} style={{ ...s.card, opacity: isRedeemed ? 0.7 : 1, border: isRedeemed ? `2px solid ${colors.primary}` : `1px solid ${colors.border}` }}>
               <div style={{ fontSize: "40px", marginBottom: "12px" }}>{reward.icon}</div>
               <div style={{ fontWeight: 700, fontSize: "15px", marginBottom: "4px" }}>{reward.name}</div>
               <div style={{ fontSize: "12px", color: colors.muted, marginBottom: "12px" }}>{reward.category}</div>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <span style={{ fontWeight: 800, fontSize: "18px", color: canAfford ? colors.primary : "#9ca3af" }}>⭐ {reward.points}</span>
+                <span style={{ fontWeight: 800, fontSize: "18px", color: canAfford ? colors.primary : "#9ca3af" }}>⭐ {reward.points_cost}</span>
                 <button
                   onClick={() => redeemReward(reward)}
                   disabled={isRedeemed || !canAfford}
@@ -1009,17 +1293,17 @@ export default function EcoTrace() {
 
       <div style={s.grid4}>
         {[
-          { icon: "👥", label: "Total Users", value: "52,847", change: "+12%", color: "#22c55e" },
-          { icon: "♻️", label: "Items Collected", value: "1.2M", change: "+8%", color: "#0ea5e9" },
-          { icon: "🏢", label: "Active Centers", value: "234", change: "+3", color: "#f59e0b" },
-          { icon: "🚚", label: "Pending Pickups", value: "1,847", change: "-5%", color: "#8b5cf6" },
+          { icon: "👥", label: "Total Users", value: adminStats?.total_users?.value || "0", change: adminStats?.total_users?.change || "+0%", color: "#22c55e" },
+          { icon: "♻️", label: "Items Collected", value: adminStats?.items_collected?.value || "0", change: adminStats?.items_collected?.change || "+0%", color: "#0ea5e9" },
+          { icon: "🏢", label: "Active Centers", value: adminStats?.active_centers?.value || "0", change: adminStats?.active_centers?.change || "+0", color: "#f59e0b" },
+          { icon: "🚚", label: "Pending Pickups", value: adminStats?.pending_pickups?.value || "0", change: adminStats?.pending_pickups?.change || "-0%", color: "#8b5cf6" },
         ].map(k => (
           <div key={k.label} style={s.statCard(k.color)}>
             <div style={{ display: "flex", justifyContent: "space-between" }}>
               <div>
                 <div style={{ fontSize: "13px", color: colors.muted, fontWeight: 600, marginBottom: "8px" }}>{k.label}</div>
                 <div style={{ fontSize: "28px", fontWeight: 900 }}>{k.value}</div>
-                <div style={{ fontSize: "12px", color: k.color, marginTop: "4px", fontWeight: 600 }}>{k.change} this month</div>
+                <div style={{ fontSize: "12px", color: k.color, marginTop: "4px", fontWeight: 600 }}>{k.change} recently</div>
               </div>
               <span style={{ fontSize: "32px" }}>{k.icon}</span>
             </div>
@@ -1030,22 +1314,21 @@ export default function EcoTrace() {
       <div style={{ ...s.grid2, marginTop: "24px" }}>
         {/* Pending Pickups */}
         <div style={s.card}>
-          <h3 style={{ fontWeight: 700, marginBottom: "16px" }}>📋 Pending Pickup Approvals</h3>
-          {[
-            { user: "Sarah M.", device: "3x Laptops", location: "Brooklyn, NY", priority: "high" },
-            { user: "John D.", device: "TV + Cables", location: "Manhattan, NY", priority: "normal" },
-            { user: "Amy K.", device: "Phone lot x12", location: "Queens, NY", priority: "high" },
-          ].map((r, i) => (
+          <h3 style={{ fontWeight: 700, marginBottom: "16px" }}>📋 Incoming Pickup Requests</h3>
+          {adminPickups.filter(p => p.status === 'scheduled').length === 0 && (
+            <div style={{ textAlign: "center", color: colors.muted, padding: "20px" }}>No pending requests.</div>
+          )}
+          {adminPickups.filter(p => p.status === 'scheduled').map((r, i) => (
             <div key={i} style={{ display: "flex", gap: "12px", alignItems: "center", padding: "12px 0", borderBottom: `1px solid ${colors.border}` }}>
-              <div style={{ width: "40px", height: "40px", background: "#f0fdf4", borderRadius: "10px", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "20px" }}>👤</div>
+              <div style={{ width: "40px", height: "40px", background: "#f0fdf4", borderRadius: "10px", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "20px" }}>📦</div>
               <div style={{ flex: 1 }}>
                 <div style={{ fontWeight: 600, fontSize: "14px" }}>{r.user}</div>
-                <div style={{ fontSize: "12px", color: colors.muted }}>{r.device} · {r.location}</div>
+                <div style={{ fontSize: "12px", color: colors.muted }}>{r.device} (x{r.qty}) · {r.address}</div>
               </div>
               <span style={s.badge(r.priority === "high" ? "#ef4444" : "#f59e0b")}>{r.priority}</span>
               <div style={{ display: "flex", gap: "6px" }}>
-                <button onClick={() => showNotif("Pickup approved!")} style={{ ...s.btn("primary"), padding: "6px 12px", fontSize: "12px" }}>✓</button>
-                <button style={{ ...s.btn("secondary"), padding: "6px 12px", fontSize: "12px" }}>✗</button>
+                <button onClick={() => handleAdminPickupUpdate(r.id, "collected")} style={{ ...s.btn("primary"), padding: "6px 12px", fontSize: "12px" }}>Approve</button>
+                <button onClick={() => handleAdminPickupUpdate(r.id, "cancelled")} style={{ ...s.btn("secondary"), padding: "6px 12px", fontSize: "12px" }}>✗</button>
               </div>
             </div>
           ))}
@@ -1076,28 +1359,25 @@ export default function EcoTrace() {
 
       {/* User table */}
       <div style={{ ...s.card, marginTop: "24px" }}>
-        <h3 style={{ fontWeight: 700, marginBottom: "16px" }}>👥 Recent User Activity</h3>
+        <h3 style={{ fontWeight: 700, marginBottom: "16px" }}>👥 Platform User Overview</h3>
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
             <tr style={{ borderBottom: `2px solid ${colors.border}` }}>
-              {["User", "Items Recycled", "EcoPoints", "Last Activity", "Status"].map(h => (
+              {["User", "Items Recycled", "EcoPoints", "Joined"].map(h => (
                 <th key={h} style={{ padding: "10px 12px", textAlign: "left", fontSize: "12px", color: colors.muted, fontWeight: 700, textTransform: "uppercase" }}>{h}</th>
               ))}
             </tr>
           </thead>
           <tbody>
-            {[
-              { name: "Alex Chen", items: 47, pts: 1840, last: "2h ago", active: true },
-              { name: "Sarah Miller", items: 89, pts: 3420, last: "1d ago", active: true },
-              { name: "John Doe", items: 12, pts: 480, last: "3d ago", active: false },
-              { name: "Amy Kim", items: 156, pts: 6200, last: "30m ago", active: true },
-            ].map((u, i) => (
+            {adminUsers.map((u, i) => (
               <tr key={i} style={{ borderBottom: `1px solid ${colors.border}` }}>
-                <td style={{ padding: "12px" }}><div style={{ fontWeight: 600, fontSize: "14px" }}>{u.name}</div></td>
-                <td style={{ padding: "12px", fontSize: "14px" }}>{u.items}</td>
-                <td style={{ padding: "12px" }}><span style={s.badge("#f59e0b")}>⭐ {u.pts}</span></td>
-                <td style={{ padding: "12px", fontSize: "13px", color: colors.muted }}>{u.last}</td>
-                <td style={{ padding: "12px" }}><span style={s.badge(u.active ? "#22c55e" : "#9ca3af")}>{u.active ? "Active" : "Inactive"}</span></td>
+                <td style={{ padding: "12px" }}>
+                  <div style={{ fontWeight: 600, fontSize: "14px" }}>{u.full_name || u.username}</div>
+                  <div style={{ fontSize: "11px", color: colors.muted }}>{u.email}</div>
+                </td>
+                <td style={{ padding: "12px", fontSize: "14px" }}>{u.items_recycled}</td>
+                <td style={{ padding: "12px" }}><span style={s.badge("#f59e0b")}>⭐ {u.eco_points}</span></td>
+                <td style={{ padding: "12px", fontSize: "13px", color: colors.muted }}>{new Date(u.created_at).toLocaleDateString()}</td>
               </tr>
             ))}
           </tbody>
@@ -1318,7 +1598,7 @@ export default function EcoTrace() {
       map: <MapPage />,
       pickup: PickupPage(),
       rewards: RewardsPage(),
-      admin: AdminPage(),
+      admin: userProfile?.is_staff ? AdminPage() : Dashboard(),
       education: EducationPage(),
     };
     return pageMap[activePage] || Dashboard();
@@ -1351,7 +1631,7 @@ export default function EcoTrace() {
             {sidebarOpen && <span style={{ fontWeight: 800, fontSize: "18px", background: "linear-gradient(135deg, #22c55e, #4ade80)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", whiteSpace: "nowrap" }}>EcoTrace</span>}
           </div>
           <div style={{ flex: 1, overflowY: "auto", padding: "8px 0" }}>
-            {NAV_ITEMS.map(item => (
+            {NAV_ITEMS.filter(item => item.id !== 'admin' || userProfile?.is_staff).map(item => (
               <div key={item.id} style={s.navItem(activePage === item.id)} onClick={() => setActivePage(item.id)}>
                 <span style={{ fontSize: "20px", flexShrink: 0 }}>{item.icon}</span>
                 {sidebarOpen && <span style={{ fontWeight: 600, fontSize: "14px", whiteSpace: "nowrap" }}>{item.label}</span>}
@@ -1365,7 +1645,7 @@ export default function EcoTrace() {
                 <div style={{ flex: 1, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                   <div>
                     <div style={{ fontSize: "13px", fontWeight: 700, color: "#fff", maxWidth: "120px", overflow: "hidden", textOverflow: "ellipsis" }}>{userProfile?.username || "Eco Warrior"}</div>
-                    <div style={{ fontSize: "11px", color: "rgba(255,255,255,0.4)" }}>EcoPoints: {userProfile?.eco_points || userPoints}</div>
+                    <div style={{ fontSize: "11px", color: "rgba(255,255,255,0.4)" }}>EcoPoints: {userProfile?.eco_points || 0}</div>
                   </div>
                   <button onClick={handleLogout} style={{ background: "none", border: "none", color: "#ef4444", cursor: "pointer", fontSize: "16px" }} title="Logout">🚪</button>
                 </div>
@@ -1389,7 +1669,7 @@ export default function EcoTrace() {
             <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
               <div style={{ display: "flex", alignItems: "center", gap: "6px", background: "#f0fdf4", padding: "6px 14px", borderRadius: "20px", border: `1px solid #bbf7d0` }}>
                 <span style={{ fontSize: "16px" }}>⭐</span>
-                <span style={{ fontWeight: 700, fontSize: "14px", color: colors.primary }}>{userProfile?.eco_points || userPoints} pts</span>
+                <span style={{ fontWeight: 700, fontSize: "14px", color: colors.primary }}>{userProfile?.eco_points || 0} pts</span>
               </div>
               <button onClick={() => setChatOpen(o => !o)} style={{ background: "linear-gradient(135deg, #22c55e, #16a34a)", border: "none", borderRadius: "50%", width: "40px", height: "40px", cursor: "pointer", fontSize: "20px", display: "flex", alignItems: "center", justifyContent: "center" }}>💬</button>
               <div style={{ width: "36px", height: "36px", background: "linear-gradient(135deg, #22c55e, #4ade80)", borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "18px", cursor: "pointer" }}>👤</div>
@@ -1414,7 +1694,12 @@ export default function EcoTrace() {
                 <div style={{ color: "#86efac", fontSize: "11px" }}>● Online</div>
               </div>
             </div>
-            <button onClick={() => setChatOpen(false)} style={{ background: "none", border: "none", color: "#fff", cursor: "pointer", fontSize: "20px" }}>×</button>
+            <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+              <button onClick={() => setIsMuted(!isMuted)} style={{ background: "none", border: "none", color: "#fff", cursor: "pointer", fontSize: "18px", opacity: isMuted ? 0.5 : 1 }} title={isMuted ? "Unmute Bot" : "Mute Bot"}>
+                {isMuted ? "🔇" : "🔊"}
+              </button>
+              <button onClick={() => setChatOpen(false)} style={{ background: "none", border: "none", color: "#fff", cursor: "pointer", fontSize: "20px" }}>×</button>
+            </div>
           </div>
           <div style={{ flex: 1, overflowY: "auto", padding: "16px", display: "flex", flexDirection: "column", gap: "10px", maxHeight: "360px" }}>
             {chatMessages.map((msg, i) => (
@@ -1426,10 +1711,24 @@ export default function EcoTrace() {
             ))}
             <div ref={chatEndRef} />
           </div>
-          <div style={{ padding: "12px 16px", borderTop: `1px solid ${colors.border}`, display: "flex", gap: "8px" }}>
-            <input style={{ ...s.input, flex: 1, padding: "10px 14px" }} placeholder="Ask about recycling..." value={chatInput} onChange={e => setChatInput(e.target.value)} onKeyDown={e => e.key === "Enter" && sendChat()} />
+          <div style={{ padding: "12px 16px", borderTop: `1px solid ${colors.border}`, display: "flex", gap: "8px", alignItems: "center" }}>
+            <button
+              onClick={startListening}
+              style={{ ...s.btn("secondary"), padding: "10px", borderRadius: "50%", background: isListening ? "#fee2e2" : "#f1f5f9", color: isListening ? "#ef4444" : colors.text, animation: isListening ? "pulse 1.5s infinite" : "none" }}
+              title="Speak to EcoBot"
+            >
+              🎤
+            </button>
+            <input style={{ ...s.input, flex: 1, padding: "10px 14px" }} placeholder={isListening ? "Listening..." : "Ask about recycling..."} value={chatInput} onChange={e => setChatInput(e.target.value)} onKeyDown={e => e.key === "Enter" && sendChat()} />
             <button onClick={sendChat} style={{ ...s.btn("primary"), padding: "10px 16px" }}>↑</button>
           </div>
+          <style>{`
+            @keyframes pulse {
+              0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); }
+              70% { transform: scale(1.1); box-shadow: 0 0 0 10px rgba(239, 68, 68, 0); }
+              100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+            }
+          `}</style>
           <div style={{ padding: "8px 16px 12px", display: "flex", gap: "6px", flexWrap: "wrap" }}>
             {["Battery", "Laptop", "Phone", "TV"].map(q => (
               <button key={q} onClick={() => { setChatInput(q); }} style={{ padding: "5px 10px", borderRadius: "14px", border: `1px solid ${colors.border}`, background: "#fff", cursor: "pointer", fontSize: "12px", color: colors.primary, fontWeight: 600 }}>{q}</button>

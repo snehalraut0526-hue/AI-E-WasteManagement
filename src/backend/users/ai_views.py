@@ -46,6 +46,16 @@ DEVICE_TEMPLATES = [
             "Schedule a pickup to earn 120 points"
         ],
         "points": 120
+    },
+    {
+        "type": "Miscellaneous E-Waste",
+        "category": "Others",
+        "instructions": [
+            "Check for official e-waste recycling symbols",
+            "Keep separate from household trash",
+            "Bring to any generic e-waste collection point to earn 50 points"
+        ],
+        "points": 50
     }
 ]
 

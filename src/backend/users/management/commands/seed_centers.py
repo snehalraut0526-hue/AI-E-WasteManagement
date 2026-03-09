@@ -69,6 +69,47 @@ class Command(BaseCommand):
                 'open_now': True,
                 'types': 'Laptops,Monitors,Printers',
             },
+            # --- Sangli Centers ---
+            {
+                'name': 'Sangli GreenRecycle Hub',
+                'address': 'Miraj Road, Sangli - 416416',
+                'phone': '+91 233 2623 100',
+                'lat': 16.8524,
+                'lng': 74.5815,
+                'rating': 4.4,
+                'open_now': True,
+                'types': 'Phones,Laptops,Batteries',
+            },
+            {
+                'name': 'EcoTech E-Waste Sangli',
+                'address': 'Vishrambag, Sangli - 416415',
+                'phone': '+91 233 2374 200',
+                'lat': 16.8620,
+                'lng': 74.5667,
+                'rating': 4.2,
+                'open_now': True,
+                'types': 'TVs,Appliances,Cables',
+            },
+            {
+                'name': 'CircularWaste Miraj',
+                'address': 'Station Road, Miraj, Sangli - 416410',
+                'phone': '+91 233 2222 300',
+                'lat': 16.8267,
+                'lng': 74.6453,
+                'rating': 4.0,
+                'open_now': False,
+                'types': 'All Electronics',
+            },
+            {
+                'name': 'ReNew Kupwad Depot',
+                'address': 'MIDC Kupwad, Sangli - 416436',
+                'phone': '+91 233 2487 400',
+                'lat': 16.8934,
+                'lng': 74.6123,
+                'rating': 4.5,
+                'open_now': True,
+                'types': 'Phones,Tablets,Batteries',
+            },
         ]
 
         for data in centers:

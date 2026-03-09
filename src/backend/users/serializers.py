@@ -32,10 +32,15 @@ class UserSerializer(serializers.ModelSerializer):
         model = User
         fields = ['id', 'email', 'username', 'full_name', 'phone', 'eco_points', 'items_recycled', 'created_at']
 
-from .models import PickupRequest
+from .models import PickupRequest, Reward
 
 class PickupRequestSerializer(serializers.ModelSerializer):
     class Meta:
         model = PickupRequest
-        fields = ['id', 'user', 'device', 'qty', 'address', 'date', 'notes', 'status', 'created_at']
-        read_only_fields = ['id', 'user', 'status', 'created_at']
+        fields = ['id', 'user', 'device', 'qty', 'address', 'date', 'notes', 'status', 'tracking_id', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'user', 'status', 'tracking_id', 'created_at', 'updated_at']
+
+class RewardSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Reward
+        fields = '__all__'
